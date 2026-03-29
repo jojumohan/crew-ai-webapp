@@ -1,13 +1,13 @@
 import Header from '@/components/Header/Header';
-import StandupRoom from '@/components/StandupRoom/StandupRoom';
+import VoiceRoom from '@/components/VoiceRoom/VoiceRoom';
 import styles from '../page.module.css';
 
 export default function AgentsPage() {
   return (
     <>
       <Header title="Standup Meeting" />
-      <div className={styles.page}>
-        <StandupRoom />
+      <div className={styles.page} style={{ padding: 0, height: '100%' }}>
+        <VoiceRoom />
       </div>
     </>
   );
