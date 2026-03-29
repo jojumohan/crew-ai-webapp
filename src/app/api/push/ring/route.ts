@@ -12,19 +12,26 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { title, body } = await req.json();
+  const { title, body, targetUserId } = await req.json();
   const callerName = session.user?.name ?? 'Someone';
   const callerId = session.user?.id ?? '';
 
   try {
-    const snap = await db
-      .collection('pushSubscriptions')
-      .where('userId', '!=', callerId)
-      .get();
+    let query = db.collection('pushSubscriptions');
+    
+    // If targetUserId is set, we only ring that specific member
+    // Otherwise, we ring the whole team (excluding the caller)
+    let snap;
+    if (targetUserId) {
+      snap = await query.where('userId', '==', targetUserId).get();
+    } else {
+      snap = await query.where('userId', '!=', callerId).get();
+    }
 
     const payload = JSON.stringify({
-      title: title || `📞 Incoming call from ${callerName}`,
-      body: body || 'Tap to open Aronlabz Teams',
+      title: title || (targetUserId ? `📞 Direct call from ${callerName}` : `📞 Incoming call from ${callerName}`),
+      body: body || (targetUserId ? 'Incoming contact — Tap to accept' : 'Tap to open Aronlabz Teams'),
+
       icon: '/icon.svg',
       badge: '/icon.svg',
       tag: 'aronlabz-ring',
