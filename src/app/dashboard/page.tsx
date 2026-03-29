@@ -1,12 +1,13 @@
 import { auth } from '@/auth';
 import Header from '@/components/Header/Header';
 import MeetRoom from '@/components/MeetRoom/MeetRoom';
+import { db } from '@/lib/firebase-admin';
 import styles from './page.module.css';
 
 const STATS = [
   { label: 'Open Tickets', value: '—', icon: '✦', color: '#3b82f6' },
   { label: 'In Progress', value: '—', icon: '◉', color: '#f59e0b' },
-  { label: 'AI Agents', value: '—', icon: '◈', color: '#10b981' },
+  { label: 'AI Agents', value: '2', icon: '◈', color: '#10b981' },
   { label: 'Team Members', value: '—', icon: '◎', color: '#8b5cf6' },
 ];
 
@@ -15,6 +16,10 @@ export default async function DashboardPage() {
   const name = session?.user?.name ?? 'User';
   const firstName = name.split(' ')[0] ?? 'there';
   const roomName = `aronlabz-team-${process.env.FIREBASE_PROJECT_ID || 'default'}`;
+
+  // Fetch real team members from Firestore
+  const membersSnap = await db.collection('users').orderBy('role', 'asc').get();
+  const members = membersSnap.docs.map(doc => doc.data());
 
   return (
     <>
@@ -29,7 +34,7 @@ export default async function DashboardPage() {
           {STATS.map(({ label, value, icon, color }) => (
             <div key={label} className={`${styles.statCard} glass`}>
               <div className={styles.statIcon} style={{ color }}>{icon}</div>
-              <div className={styles.statValue}>{value}</div>
+              <div className={styles.statValue}>{label === 'Team Members' ? members.length : value}</div>
               <div className={styles.statLabel}>{label}</div>
             </div>
           ))}
@@ -37,10 +42,22 @@ export default async function DashboardPage() {
 
         <div className={styles.panels}>
           <div className={`${styles.panel} glass`}>
-            <h3>Recent Tickets</h3>
-            <div className={styles.empty}>
-              <span>◇</span>
-              <p>No tickets yet</p>
+            <h3>Team Members</h3>
+            <div className={styles.memberList}>
+              {members.map((m, i) => (
+                <div key={i} className={styles.memberRow}>
+                  <div className={styles.avatarMini}>{m.display_name[0]}</div>
+                  <div className={styles.memberInfo}>
+                    <span className={styles.memberName}>{m.display_name}</span>
+                    <span className={styles.memberRole}>
+                      {m.role === 'agent' ? '🤖 AI Agent' : '👤 Human'}
+                    </span>
+                  </div>
+                  <div className={styles.memberStatus}>
+                     <span className={styles.statusDot} style={{ background: m.status === 'active' ? '#10b981' : '#ccc' }} />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -50,9 +67,15 @@ export default async function DashboardPage() {
 
           <div className={`${styles.panel} glass`}>
             <h3>Active Agents</h3>
-            <div className={styles.empty}>
-              <span>◈</span>
-              <p>No agents running</p>
+            <div className={styles.agentActivity}>
+               <div className={styles.agentRow}>
+                 <span>◈</span>
+                 <p><strong>Chief of Staff:</strong> Monitoring standups...</p>
+               </div>
+               <div className={styles.agentRow}>
+                 <span>◈</span>
+                 <p><strong>Lead Dev:</strong> Reviewing tickets...</p>
+               </div>
             </div>
           </div>
         </div>
@@ -60,4 +83,5 @@ export default async function DashboardPage() {
     </>
   );
 }
+
 
