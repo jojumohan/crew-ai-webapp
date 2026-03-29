@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
 import { Groq } from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
 // This API handles sending messages and AUTOMATICALLY triggers agent replies
+// We moved the Groq initialization INSIDE the function to avoid build errors when the key is missing
 export async function POST(req: NextRequest) {
   const { senderId, targetId, text } = await req.json();
   if (!senderId || !targetId || !text) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
   const conversationId = [senderId, targetId].sort().join('_');
   const timestamp = new Date();
+
+  const apiKey = process.env.GROQ_API_KEY;
+  const groq = new Groq({ apiKey: apiKey || 'DUMMY_FOR_BUILD' });
 
   try {
     // 1. Save user message
@@ -22,11 +24,16 @@ export async function POST(req: NextRequest) {
     });
 
     // 2. Check if the target is an AI Agent
-    // We'll check if the role is 'agent' or if the ID starts with 'agent_'
-    const targetSnap = await db.collection('users').doc(targetId).get();
-    const targetData = targetSnap.exists ? targetSnap.data() : null;
+    if (targetId.startsWith('agent_')) {
+      if (!apiKey) {
+         console.warn("GROQ_API_KEY is missing in production environment.");
+         return NextResponse.json({ ok: true, note: "Message saved, but AI brain is missing GROQ_API_KEY." });
+      }
 
-    if (targetData?.role === 'agent' || targetId.startsWith('agent_')) {
+      // Fetch target persona from db
+      const targetSnap = await db.collection('users').doc(targetId).get();
+      const targetData = targetSnap.exists ? targetSnap.data() : { display_name: 'AI Agent' };
+
       // Trigger AI Brain
       const systemPrompt = `You are ${targetData?.display_name || 'an AI Agent'} at Aronlabz. 
       You are a full team member. Be professional, helpful, and concise. 
@@ -55,6 +62,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
+    console.error("Agent reply error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
