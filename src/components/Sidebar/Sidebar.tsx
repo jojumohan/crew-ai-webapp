@@ -6,12 +6,12 @@ import { signOut } from 'next-auth/react';
 import styles from './Sidebar.module.css';
 
 const NAV = [
-  { href: '/dashboard',          label: 'Overview', icon: '◈' },
-  { href: '/dashboard/tasks',    label: 'Tasks',    icon: '✦' },
-  { href: '/dashboard/agents',   label: 'Agents',   icon: '◉' },
-  { href: '/dashboard/chat',     label: 'Chat',     icon: '◎' },
-  { href: '/dashboard/calendar', label: 'Calendar', icon: '◇' },
-  { href: '/dashboard/files',    label: 'Files',    icon: '▣' },
+  { href: '/dashboard',          label: 'Overview', icon: '🏠' },
+  { href: '/dashboard/tasks',    label: 'Tasks',    icon: '✅' },
+  { href: '/dashboard/agents',   label: 'Agents',   icon: '🤖' },
+  { href: '/dashboard/chat',     label: 'Chat',     icon: '💬' },
+  { href: '/dashboard/calendar', label: 'Calendar', icon: '📅' },
+  { href: '/dashboard/files',    label: 'Files',    icon: '📁' },
 ];
 
 export default function Sidebar() {
@@ -27,7 +27,7 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside className={styles.sidebar + ' glass'}>
         <div className={styles.logo}>
-          <span className={styles.logoIcon}>⚡</span>
+          <span className={styles.logoIcon}>⚡️</span>
           <span className={styles.logoText}>Aronlabz Teams</span>
         </div>
 
@@ -48,7 +48,7 @@ export default function Sidebar() {
           className={styles.signOut}
           onClick={() => signOut({ callbackUrl: '/login' })}
         >
-          <span className={styles.icon}>⊗</span>
+          <span className={styles.icon}>🚪</span>
           <span>Sign Out</span>
         </button>
       </aside>
@@ -69,7 +69,7 @@ export default function Sidebar() {
           className={styles.bottomSignOut}
           onClick={() => signOut({ callbackUrl: '/login' })}
         >
-          <span className={styles.bottomNavIcon}>⊗</span>
+          <span className={styles.bottomNavIcon}>🚪</span>
           <span>Out</span>
         </button>
       </nav>
