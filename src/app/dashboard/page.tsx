@@ -1,4 +1,3 @@
-import { auth } from '@/auth';
 import Header from '@/components/Header/Header';
 import styles from './page.module.css';
 
@@ -10,8 +9,7 @@ const STATS = [
 ];
 
 export default async function DashboardPage() {
-  const session = await auth();
-  const firstName = session?.user?.name?.split(' ')[0] ?? 'there';
+  const firstName = 'Joju';
 
   return (
     <>
