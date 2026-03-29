@@ -1,17 +1,13 @@
 import Header from '@/components/Header/Header';
-import AgentPanel from './AgentPanel';
+import StandupRoom from '@/components/StandupRoom/StandupRoom';
 import styles from '../page.module.css';
 
 export default function AgentsPage() {
   return (
     <>
-      <Header title="AI Agents" />
+      <Header title="Standup Meeting" />
       <div className={styles.page}>
-        <div className={styles.welcome}>
-          <h1>AI Agents</h1>
-          <p>Monitor and control your Aronlabz AI Chief of Staff.</p>
-        </div>
-        <AgentPanel />
+        <StandupRoom />
       </div>
     </>
   );
