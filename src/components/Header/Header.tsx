@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import RingButton from '@/components/RingButton/RingButton';
 import styles from './Header.module.css';
 
 interface HeaderProps {
@@ -13,9 +14,12 @@ export default async function Header({ title }: HeaderProps) {
   return (
     <header className={styles.header}>
       <h2 className={styles.title}>{title}</h2>
-      <div className={styles.user}>
-        <span className={styles.name}>{name}</span>
-        <div className={styles.avatar}>{initials}</div>
+      <div className={styles.right}>
+        <RingButton />
+        <div className={styles.user}>
+          <span className={styles.name}>{name}</span>
+          <div className={styles.avatar}>{initials}</div>
+        </div>
       </div>
     </header>
   );
