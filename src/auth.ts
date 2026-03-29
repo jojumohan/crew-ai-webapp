@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import mysql, { RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+import { db } from '@/lib/firebase-admin';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -14,28 +14,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
         try {
-          console.log('[auth] connecting to DB host:', process.env.DB_HOST);
-          const conn = await mysql.createConnection({
-            host: process.env.DB_HOST || 'localhost',
-            port: Number(process.env.DB_PORT) || 3306,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_NAME,
-          });
+          const snap = await db
+            .collection('users')
+            .where('username', '==', (credentials.username as string).toLowerCase())
+            .limit(1)
+            .get();
 
-          const [rows] = await conn.execute<RowDataPacket[]>(
-            'SELECT id, username, email, password_hash, role, display_name, status FROM users WHERE username = ? LIMIT 1',
-            [credentials.username as string]
-          );
-          await conn.end();
+          if (snap.empty) return null;
 
-          console.log('[auth] rows found:', rows.length);
-          if (!rows.length) return null;
-
-          const user = rows[0];
+          const doc = snap.docs[0];
+          const user = doc.data();
 
           if (user.status === 'pending') {
-            console.log('[auth] user pending approval');
             throw new Error('PENDING');
           }
 
@@ -43,17 +33,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             credentials.password as string,
             user.password_hash
           );
-          console.log('[auth] password valid:', valid);
           if (!valid) return null;
 
           return {
-            id: String(user.id),
+            id: doc.id,
             name: user.display_name ?? user.username,
             email: user.email ?? undefined,
             role: user.role,
           };
         } catch (err: any) {
-          console.error('[auth] error:', err?.message, err?.code);
+          if (err.message === 'PENDING') throw err;
+          console.error('[auth] error:', err?.message);
           return null;
         }
       },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import webpush from 'web-push';
-import mysql from 'mysql2/promise';
+import { db } from '@/lib/firebase-admin';
 
 export async function POST(req: NextRequest) {
   webpush.setVapidDetails(
@@ -14,21 +14,13 @@ export async function POST(req: NextRequest) {
 
   const { title, body } = await req.json();
   const callerName = session.user?.name ?? 'Someone';
+  const callerId = session.user?.id ?? '';
 
   try {
-    const conn = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || 3306,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-    });
-
-    const [rows] = await conn.execute<any[]>(
-      'SELECT endpoint, p256dh, auth_key FROM push_subscriptions WHERE user_id != ?',
-      [session.user?.id ?? '']
-    );
-    await conn.end();
+    const snap = await db
+      .collection('pushSubscriptions')
+      .where('userId', '!=', callerId)
+      .get();
 
     const payload = JSON.stringify({
       title: title || `📞 Incoming call from ${callerName}`,
@@ -43,16 +35,17 @@ export async function POST(req: NextRequest) {
     });
 
     const results = await Promise.allSettled(
-      rows.map((row) =>
-        webpush.sendNotification(
-          { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth_key } },
+      snap.docs.map((doc) => {
+        const sub = doc.data();
+        return webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
-        )
-      )
+        );
+      })
     );
 
     const sent = results.filter((r) => r.status === 'fulfilled').length;
-    return NextResponse.json({ ok: true, sent, total: rows.length });
+    return NextResponse.json({ ok: true, sent, total: snap.size });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

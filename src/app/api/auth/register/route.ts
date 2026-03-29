@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+import { db } from '@/lib/firebase-admin';
 
 export async function POST(req: NextRequest) {
   const { username, display_name, email, password } = await req.json();
@@ -12,27 +12,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
   }
 
+  const normalizedUsername = username.toLowerCase();
+
+  // Check for existing username
+  const existing = await db
+    .collection('users')
+    .where('username', '==', normalizedUsername)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    return NextResponse.json({ error: 'Username already taken' }, { status: 409 });
+  }
+
   const hash = await bcrypt.hash(password, 12);
 
-  try {
-    const conn = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || 3306,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-    });
+  await db.collection('users').add({
+    username: normalizedUsername,
+    display_name: display_name || username,
+    email: email || null,
+    password_hash: hash,
+    role: 'staff',
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  });
 
-    await conn.execute(
-      'INSERT INTO users (username, display_name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [username.toLowerCase(), display_name || username, email || null, hash, 'staff', 'pending']
-    );
-    await conn.end();
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    if (err.code === 'ER_DUP_ENTRY') {
-      return NextResponse.json({ error: 'Username already taken' }, { status: 409 });
-    }
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
+  return NextResponse.json({ ok: true });
 }

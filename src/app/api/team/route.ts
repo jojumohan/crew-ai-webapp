@@ -1,29 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
-
-async function getConn() {
-  return mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
+import { db } from '@/lib/firebase-admin';
 
 // GET — list all users
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const conn = await getConn();
-  const [rows] = await conn.execute<any[]>(
-    'SELECT id, username, display_name, email, role, status, created_at FROM users ORDER BY created_at ASC'
-  );
-  await conn.end();
-  return NextResponse.json({ users: rows });
+  const snap = await db.collection('users').orderBy('created_at', 'asc').get();
+  const users = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  // Remove password_hash from response
+  const safe = users.map(({ password_hash, ...u }: any) => u);
+  return NextResponse.json({ users: safe });
 }
 
 // POST — add new user (admin only)
@@ -35,20 +24,27 @@ export async function POST(req: NextRequest) {
   const { username, display_name, email, password, role } = await req.json();
   if (!username || !password) return NextResponse.json({ error: 'Username and password required' }, { status: 400 });
 
+  const normalizedUsername = username.toLowerCase();
+  const existing = await db
+    .collection('users')
+    .where('username', '==', normalizedUsername)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) return NextResponse.json({ error: 'Username already exists' }, { status: 409 });
+
   const hash = await bcrypt.hash(password, 12);
-  const conn = await getConn();
-  try {
-    await conn.execute(
-      'INSERT INTO users (username, display_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)',
-      [username, display_name || username, email || null, hash, role || 'staff']
-    );
-    await conn.end();
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    await conn.end();
-    if (err.code === 'ER_DUP_ENTRY') return NextResponse.json({ error: 'Username already exists' }, { status: 409 });
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
+  await db.collection('users').add({
+    username: normalizedUsername,
+    display_name: display_name || username,
+    email: email || null,
+    password_hash: hash,
+    role: role || 'staff',
+    status: 'active',
+    created_at: new Date().toISOString(),
+  });
+
+  return NextResponse.json({ ok: true });
 }
 
 // DELETE — remove user (admin only)
@@ -60,11 +56,8 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json();
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-  // Prevent deleting self
   if (String(id) === session.user?.id) return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
 
-  const conn = await getConn();
-  await conn.execute('DELETE FROM users WHERE id = ?', [id]);
-  await conn.end();
+  await db.collection('users').doc(id).delete();
   return NextResponse.json({ ok: true });
 }

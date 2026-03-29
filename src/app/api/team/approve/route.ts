@@ -1,16 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import mysql from 'mysql2/promise';
-
-async function getConn() {
-  return mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-}
+import { db } from '@/lib/firebase-admin';
 
 // POST — approve or reject a pending user
 export async function POST(req: NextRequest) {
@@ -23,12 +13,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 
-  const conn = await getConn();
+  const ref = db.collection('users').doc(id);
+
   if (action === 'approve') {
-    await conn.execute('UPDATE users SET status = ? WHERE id = ?', ['active', id]);
+    await ref.update({ status: 'active' });
   } else {
-    await conn.execute('DELETE FROM users WHERE id = ? AND status = ?', [id, 'pending']);
+    // Only delete if still pending
+    const doc = await ref.get();
+    if (doc.exists && doc.data()?.status === 'pending') {
+      await ref.delete();
+    }
   }
-  await conn.end();
+
   return NextResponse.json({ ok: true });
 }
