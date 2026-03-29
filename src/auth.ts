@@ -16,18 +16,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
         try {
+          console.log('[auth] attempting login for:', credentials.username);
           const [user] = await db
             .select()
             .from(users)
             .where(eq(users.username, credentials.username as string))
             .limit(1);
 
+          console.log('[auth] user found:', !!user);
           if (!user) return null;
 
           const valid = await bcrypt.compare(
             credentials.password as string,
             user.passwordHash
           );
+          console.log('[auth] password valid:', valid);
           if (!valid) return null;
 
           return {
