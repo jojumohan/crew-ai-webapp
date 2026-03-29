@@ -1,9 +1,9 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { db } from '@/lib/firebase-admin';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  secret: process.env.AUTH_SECRET,
   trustHost: true,
   providers: [
     Credentials({
@@ -14,6 +14,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
         try {
+          // Lazy import to prevent Firebase init errors from crashing all auth routes
+          const { db } = await import('@/lib/firebase-admin');
+
           const snap = await db
             .collection('users')
             .where('username', '==', (credentials.username as string).toLowerCase())
