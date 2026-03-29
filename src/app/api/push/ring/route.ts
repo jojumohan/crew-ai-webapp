@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     const [rows] = await conn.execute<any[]>(
       'SELECT endpoint, p256dh, auth_key FROM push_subscriptions WHERE user_id != ?',
-      [session.user?.id]
+      [session.user?.id ?? '']
     );
     await conn.end();
 
