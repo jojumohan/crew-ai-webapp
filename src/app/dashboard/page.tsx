@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import Header from '@/components/Header/Header';
+import MeetRoom from '@/components/MeetRoom/MeetRoom';
 import styles from './page.module.css';
 
 const STATS = [
@@ -11,7 +12,9 @@ const STATS = [
 
 export default async function DashboardPage() {
   const session = await auth();
-  const firstName = session?.user?.name?.split(' ')[0] ?? 'there';
+  const name = session?.user?.name ?? 'User';
+  const firstName = name.split(' ')[0] ?? 'there';
+  const roomName = `aronlabz-team-${process.env.FIREBASE_PROJECT_ID || 'default'}`;
 
   return (
     <>
@@ -41,6 +44,10 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          <div className={`${styles.panel} glass`} style={{ padding: 0 }}>
+             <MeetRoom roomName={roomName} userName={name} />
+          </div>
+
           <div className={`${styles.panel} glass`}>
             <h3>Active Agents</h3>
             <div className={styles.empty}>
@@ -53,3 +60,4 @@ export default async function DashboardPage() {
     </>
   );
 }
+
