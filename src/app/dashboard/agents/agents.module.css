@@ -59,6 +59,7 @@
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .online  { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
@@ -105,4 +106,33 @@
   font-size: 0.875rem;
   color: #10b981;
   padding: 0.5rem 0;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+
+  .welcome h1 { font-size: 1.4rem; }
+
+  .agentCard {
+    padding: 1.25rem;
+    max-width: 100%;
+  }
+
+  .agentSub {
+    display: none;
+  }
+
+  .actions {
+    gap: 0.5rem;
+  }
+
+  .btnTrigger, .btnEnd, .btnRefresh {
+    flex: 1;
+    text-align: center;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8rem;
+  }
 }

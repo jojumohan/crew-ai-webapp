@@ -85,3 +85,38 @@
 .empty p {
   font-size: 0.875rem;
 }
+
+/* Mobile */
+@media (max-width: 768px) {
+  .page {
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+
+  .welcome h1 {
+    font-size: 1.4rem;
+  }
+
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .statCard {
+    padding: 1.1rem;
+  }
+
+  .statValue {
+    font-size: 1.5rem;
+  }
+
+  .panels {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .panel {
+    min-height: 180px;
+    padding: 1.25rem;
+  }
+}

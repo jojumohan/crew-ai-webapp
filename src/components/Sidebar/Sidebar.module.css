@@ -93,3 +93,82 @@
   background: rgba(248, 113, 113, 0.1);
   color: #f87171;
 }
+
+/* ── Mobile: hide sidebar, show bottom nav ── */
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+}
+
+/* Bottom nav — mobile only */
+.bottomNav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .bottomNav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.5rem 0 env(safe-area-inset-bottom, 0.5rem);
+    justify-content: space-around;
+    align-items: center;
+  }
+
+  .bottomNavItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--foreground);
+    opacity: 0.45;
+    transition: opacity 0.15s;
+    text-decoration: none;
+    min-width: 48px;
+  }
+
+  .bottomNavItem.active {
+    opacity: 1;
+    color: var(--primary);
+  }
+
+  .bottomNavIcon {
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+
+  .bottomSignOut {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--foreground);
+    opacity: 0.45;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    min-width: 48px;
+  }
+
+  .bottomSignOut:hover {
+    opacity: 1;
+    color: #f87171;
+  }
+}

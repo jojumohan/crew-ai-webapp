@@ -109,3 +109,15 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+@media (max-width: 480px) {
+  .main {
+    padding: 1.25rem;
+    align-items: flex-start;
+    padding-top: 3rem;
+  }
+
+  .card {
+    padding: 2rem 1.5rem;
+  }
+}

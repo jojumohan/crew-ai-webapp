@@ -42,3 +42,17 @@
   color: #fff;
   flex-shrink: 0;
 }
+
+@media (max-width: 768px) {
+  .header {
+    padding: 1rem 1.25rem;
+  }
+
+  .name {
+    display: none;
+  }
+
+  .title {
+    font-size: 1.1rem;
+  }
+}

@@ -12,7 +12,7 @@
   border-radius: 12px;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s;
   border-left: 3px solid transparent;
 }
 
@@ -20,13 +20,8 @@
   transform: translateY(-1px);
 }
 
-.today {
-  border-left-color: #3b82f6;
-}
-
-.soon {
-  border-left-color: #f59e0b;
-}
+.today  { border-left-color: #3b82f6; }
+.soon   { border-left-color: #f59e0b; }
 
 .dateCol {
   min-width: 160px;
@@ -104,4 +99,19 @@
   border: 1px solid rgba(239,68,68,0.2);
   line-height: 1.8;
   max-width: 520px;
+}
+
+@media (max-width: 768px) {
+  .eventCard {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .dateCol {
+    min-width: unset;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
 }
