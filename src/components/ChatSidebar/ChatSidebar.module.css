@@ -1,90 +1,193 @@
-.sidebar {
-  width: 280px;
-  background: var(--background);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+.container {
+  width: 320px;
+  height: 100%;
+  background: #111b21;
   display: flex;
   flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.title {
-  padding: 1.5rem;
-  font-size: 1.1rem;
-  font-weight: 700;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.05);
-  margin-bottom: 1rem;
-}
-
-.userList {
-  flex: 1;
-  overflow-y: auto;
+.header {
+  padding: 1rem;
+  background: #202c33;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem;
+  align-items: center;
+  gap: 1rem;
+  height: 64px;
 }
 
-.userRow {
+.headerAvatar {
+  width: 36px;
+  height: 36px;
+  background: #6a7175;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.headerTitle {
+  font-weight: 600;
+  color: #e9edef;
+}
+
+.searchBar {
+  padding: 0.5rem 1rem;
+  background: #111b21;
+}
+
+.searchInput {
+  background: #202c33;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
+}
+
+.searchIcon {
+  font-size: 0.8rem;
+  opacity: 0.5;
+}
+
+.searchInput input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.item {
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  height: 72px;
+}
+
+.item:hover {
+  background: #202c33;
+}
+
+.item.active {
+  background: #2a3942;
+}
+
+.avatarWrapper {
   position: relative;
-}
-
-.userRow:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.userRow.active {
-  background: rgba(59, 130, 246, 0.1);
-  border-left: 3px solid var(--primary);
+  flex-shrink: 0;
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
-  background: var(--primary);
-  color: #fff;
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.9rem;
+  color: #fff;
+  font-size: 1.1rem;
 }
 
-.info {
-  display: flex;
-  flex-direction: column;
-}
-
-.name {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.role {
-  font-size: 0.7rem;
-  opacity: 0.5;
-}
-
-.botBadge {
+.agentBadge {
   position: absolute;
-  top: 10px;
-  right: 15px;
-  width: 6px;
-  height: 6px;
-  background: #10b981;
+  bottom: -2px;
+  right: -2px;
+  font-size: 0.9rem;
+  background: #2a3942;
   border-radius: 50%;
-  box-shadow: 0 0 8px #10b981;
+  padding: 2px;
+}
+
+.status {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  background: #8696a0;
+  border-radius: 50%;
+  border: 2px solid #111b21;
+}
+
+.status.online {
+  background: #00a884;
+}
+
+.memberInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.memberHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.memberName {
+  font-weight: 500;
+  color: #e9edef;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.time {
+  font-size: 0.7rem;
+  color: #8696a0;
+}
+
+.lastMsg {
+  font-size: 0.85rem;
+  color: #8696a0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .loading {
-  padding: 2rem;
-  opacity: 0.5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: #111b21;
+  color: #8696a0;
+  gap: 1rem;
   font-size: 0.9rem;
-  text-align: center;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(0, 168, 132, 0.1);
+  border-top-color: #00a884;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+  .container { width: 100%; }
 }

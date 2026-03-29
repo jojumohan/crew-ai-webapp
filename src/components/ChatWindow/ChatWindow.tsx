@@ -21,7 +21,6 @@ export default function ChatWindow({ target }: ChatWindowProps) {
   useEffect(() => {
     if (!target || !currentUserId) return;
 
-    // Real-time listener between currentUserId and target.id
     const conversationId = [currentUserId, target.id].sort().join('_');
     const q = query(
       collection(db, 'messages'),
@@ -31,8 +30,11 @@ export default function ChatWindow({ target }: ChatWindowProps) {
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(doc => doc.data()));
-      setTimeout(scrollToBottom, 100);
+      setMessages(snap.docs.map(doc => ({
+        ...doc.data(),
+        time: doc.data().timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '...'
+      })));
+      setTimeout(scrollToBottom, 50);
     });
 
     return unsub;
@@ -48,7 +50,6 @@ export default function ChatWindow({ target }: ChatWindowProps) {
     setText('');
     setSending(true);
 
-    // Call the API which saves and handles bot replies
     try {
       await fetch('/api/messages/send', {
         method: 'POST',
@@ -59,8 +60,9 @@ export default function ChatWindow({ target }: ChatWindowProps) {
           text: msgText,
         }),
       });
-    } catch {
-      setText(msgText); // Restore if error
+    } catch (err) {
+      console.error("Msg Error:", err);
+      setText(msgText); 
     }
     setSending(false);
   }
@@ -69,9 +71,9 @@ export default function ChatWindow({ target }: ChatWindowProps) {
     return (
       <div className={styles.empty}>
         <div className={styles.emptyContent}>
-           <span>🏢</span>
-           <h3>Aronlabz Workspace Chat</h3>
-           <p>Select a team member or AI Agent to start messaging.</p>
+           <div className={styles.emptyIcon}>💬</div>
+           <h3>Aronlabz Desktop</h3>
+           <p>Send and receive messages without keeping your phone online.<br/>Use Aronlabz on up to 4 linked devices and 1 phone at the same time.</p>
         </div>
       </div>
     );
@@ -79,30 +81,44 @@ export default function ChatWindow({ target }: ChatWindowProps) {
 
   return (
     <div className={styles.window}>
-      <div className={styles.header}>
+      <header className={styles.header}>
         <div className={styles.avatar}>{target.display_name[0]}</div>
-        <h3>{target.display_name}</h3>
-        {target.role === 'agent' && <span className={styles.aiBadge}>AI Agent</span>}
-      </div>
+        <div className={styles.headerInfo}>
+          <div className={styles.headerName}>{target.display_name}</div>
+          <div className={styles.headerStatus}>
+            {target.role === 'agent' ? '🤖 AI Agent (Online)' : 'Online'}
+          </div>
+        </div>
+      </header>
 
       <div className={styles.messages}>
         {messages.map((m, i) => (
-          <div key={i} className={`${styles.msg} ${m.senderId === currentUserId ? styles.own : ''}`}>
-             <div className={styles.bubble}>{m.text}</div>
+          <div 
+            key={i} 
+            className={`${styles.msg} ${m.senderId === currentUserId ? styles.own : styles.received}`}
+          >
+             <div className={styles.bubble}>
+               {m.text}
+               <div className={styles.time}>{m.time}</div>
+             </div>
           </div>
         ))}
-        <div ref={scrollRef} />
+        <div ref={scrollRef} style={{ height: 1 }} />
       </div>
 
       <form className={styles.inputArea} onSubmit={sendMessage}>
         <input 
-          placeholder={`Message ${target.display_name.split(' ')[0]}...`}
+          placeholder="Type a message"
           value={text} 
           onChange={(e) => setText(e.target.value)}
           autoFocus
         />
-        <button type="submit" disabled={sending}>
-          {sending ? '...' : 'SEND'}
+        <button type="submit" className={styles.sendBtn} disabled={sending || !text.trim()}>
+          {sending ? '...' : (
+            <svg viewBox="0 0 24 24" height="24" width="24" fill="currentColor">
+              <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"></path>
+            </svg>
+          )}
         </button>
       </form>
     </div>
