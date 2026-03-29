@@ -87,6 +87,12 @@
   flex-direction: column;
 }
 
+.memberActions {
+  display: flex;
+  align-items: center;
+}
+
+
 .memberName {
   font-size: 0.9rem;
   font-weight: 600;
