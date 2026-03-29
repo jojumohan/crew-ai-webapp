@@ -1,8 +1,6 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { eq } from 'drizzle-orm';
-import { db } from '@/db';
-import { users } from '@/db/schema';
+import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -16,31 +14,40 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
         try {
-          console.log('[auth] attempting login for:', credentials.username);
-          const [user] = await db
-            .select()
-            .from(users)
-            .where(eq(users.username, credentials.username as string))
-            .limit(1);
+          console.log('[auth] connecting to DB host:', process.env.DB_HOST);
+          const conn = await mysql.createConnection({
+            host: process.env.DB_HOST || 'localhost',
+            port: Number(process.env.DB_PORT) || 3306,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+          });
 
-          console.log('[auth] user found:', !!user);
-          if (!user) return null;
+          const [rows] = await conn.execute(
+            'SELECT id, username, email, password_hash, role, display_name FROM users WHERE username = ? LIMIT 1',
+            [credentials.username]
+          ) as [any[], any];
+          await conn.end();
 
+          console.log('[auth] rows found:', rows.length);
+          if (!rows.length) return null;
+
+          const user = rows[0];
           const valid = await bcrypt.compare(
             credentials.password as string,
-            user.passwordHash
+            user.password_hash
           );
           console.log('[auth] password valid:', valid);
           if (!valid) return null;
 
           return {
             id: String(user.id),
-            name: user.displayName ?? user.username,
+            name: user.display_name ?? user.username,
             email: user.email ?? undefined,
             role: user.role,
           };
-        } catch (err) {
-          console.error('[auth] DB error:', err);
+        } catch (err: any) {
+          console.error('[auth] error:', err?.message, err?.code);
           return null;
         }
       },
