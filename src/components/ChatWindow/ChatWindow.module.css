@@ -1,0 +1,119 @@
+.window {
+  flex: 1;
+  background: #0b0f1a; /* Solid, high-visibility background */
+  display: flex;
+  flex-direction: column;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b0f1a;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.emptyContent span { font-size: 3rem; margin-bottom: 1rem; display: block; }
+
+.header {
+  padding: 1rem 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.header h3 { font-size: 1rem; font-weight: 700; margin: 0; }
+
+.aiBadge {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.messages {
+  flex: 1;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.msg.own { align-items: flex-end; }
+
+.bubble {
+  max-width: 75%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: #232a3b;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #e5e7eb;
+}
+
+.own .bubble {
+  background: var(--primary);
+  color: #fff;
+}
+
+.inputArea {
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  gap: 1rem;
+  background: #0f172a;
+}
+
+.inputArea input {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 0.8rem 1.25rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.inputArea input:focus { border-color: var(--primary); }
+
+.inputArea button {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0 1.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.inputArea button:disabled { opacity: 0.5; }

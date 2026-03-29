@@ -1,0 +1,12 @@
+.container {
+  display: flex;
+  height: calc(100vh - 70px); /* Adjust based on header height */
+  background: var(--background);
+}
+
+@media (max-width: 640px) {
+  .container {
+    flex-direction: column;
+    height: calc(100vh - 60px);
+  }
+}

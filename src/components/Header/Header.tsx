@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import Link from 'next/link';
 import RingButton from '@/components/RingButton/RingButton';
 import InstallButton from '@/components/InstallButton/InstallButton';
 import styles from './Header.module.css';
@@ -14,7 +15,13 @@ export default async function Header({ title }: HeaderProps) {
 
   return (
     <header className={styles.header}>
-      <h2 className={styles.title}>{title}</h2>
+      <div className={styles.left}>
+        <h2 className={styles.title}>{title}</h2>
+        <nav className={styles.nav}>
+          <Link href="/dashboard" className={title === 'Overview' ? styles.active : ''}>Overview</Link>
+          <Link href="/dashboard/chat" className={title === 'Chat' ? styles.active : ''}>Chat</Link>
+        </nav>
+      </div>
       <div className={styles.right}>
         <InstallButton />
         <RingButton />
@@ -26,3 +33,4 @@ export default async function Header({ title }: HeaderProps) {
     </header>
   );
 }
+
