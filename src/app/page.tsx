@@ -6,7 +6,7 @@ export default function Home() {
       <div className={styles.container}>
         <div className="glass">
           <div className={styles.content}>
-            <h1 className="animate-fade-in">Crew AI Workspace</h1>
+            <h1 className="animate-fade-in">Aronlabz Teams</h1>
             <p className={styles.subtitle}>
               Your centralized hub for agents, tasks, and communication.
             </p>

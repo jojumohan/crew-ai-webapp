@@ -18,7 +18,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Crew AI Workspace",
+  title: "Aronlabz Teams",
   description: "Centralized hub for agents, tasks, and communication.",
   manifest: "/manifest.json",
 };

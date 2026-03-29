@@ -21,7 +21,7 @@ export default function Sidebar() {
     <aside className={styles.sidebar + ' glass'}>
       <div className={styles.logo}>
         <span className={styles.logoIcon}>⚡</span>
-        <span className={styles.logoText}>Crew AI</span>
+        <span className={styles.logoText}>Aronlabz Teams</span>
       </div>
 
       <nav className={styles.nav}>

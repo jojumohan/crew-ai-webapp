@@ -39,7 +39,7 @@ export default function LoginPage() {
       <div className={styles.card + ' glass'}>
         <div className={styles.header}>
           <div className={styles.logo}>⚡</div>
-          <h1>Crew AI</h1>
+          <h1>Aronlabz Teams</h1>
           <p>Sign in to your workspace</p>
         </div>
 
