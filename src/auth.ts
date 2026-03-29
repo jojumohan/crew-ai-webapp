@@ -1,8 +1,5 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { eq } from 'drizzle-orm';
-import { db } from '@/db';
-import { users } from '@/db/schema';
 import bcrypt from 'bcryptjs';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -16,27 +13,36 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
 
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.username, credentials.username as string))
-          .limit(1);
+        try {
+          const { db } = await import('@/db');
+          const { users } = await import('@/db/schema');
+          const { eq } = await import('drizzle-orm');
 
-        if (!user) return null;
+          const [user] = await db
+            .select()
+            .from(users)
+            .where(eq(users.username, credentials.username as string))
+            .limit(1);
 
-        const valid = await bcrypt.compare(
-          credentials.password as string,
-          user.passwordHash
-        );
+          if (!user) return null;
 
-        if (!valid) return null;
+          const valid = await bcrypt.compare(
+            credentials.password as string,
+            user.passwordHash
+          );
 
-        return {
-          id: String(user.id),
-          name: user.displayName ?? user.username,
-          email: user.email ?? undefined,
-          role: user.role,
-        };
+          if (!valid) return null;
+
+          return {
+            id: String(user.id),
+            name: user.displayName ?? user.username,
+            email: user.email ?? undefined,
+            role: user.role,
+          };
+        } catch (err) {
+          console.error('[auth] DB error:', err);
+          return null;
+        }
       },
     }),
   ],
