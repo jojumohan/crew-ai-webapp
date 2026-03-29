@@ -14,7 +14,10 @@
   background: rgba(15,23,42,0.6);
   border-bottom: 1px solid rgba(255,255,255,0.07);
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
+.headerRight { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .headerLeft { display: flex; align-items: center; gap: 0.75rem; }
 .botIcon { font-size: 2rem; }
 .title { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
@@ -123,15 +126,13 @@
 
 /* Controls */
 .controls {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
   padding: 1rem;
   border-radius: 12px;
-  flex-wrap: wrap;
 }
-.updateForm { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-width: 200px; }
+.updateForm { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+.inputRow   { display: flex; gap: 0.5rem; align-items: flex-start; }
 .updateInput {
+  flex: 1;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 8px;
@@ -141,16 +142,40 @@
   resize: none;
   font-family: inherit;
   line-height: 1.5;
+  transition: border-color 0.2s;
 }
-.updateInput:focus { outline: none; border-color: rgba(99,102,241,0.5); }
+.updateInput:focus       { outline: none; border-color: rgba(99,102,241,0.5); }
 .updateInput::placeholder { color: #475569; }
+.inputListening          { border-color: rgba(239,68,68,0.6) !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.15); }
+
+.btnMic {
+  width: 42px; height: 42px; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05); color: #94a3b8;
+  font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.btnMicActive {
+  background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.5);
+  color: #f87171; animation: pulse 1.2s infinite;
+}
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+
+.listeningBadge {
+  font-size: 0.75rem; color: #f87171;
+  padding: 0.3rem 0.6rem; border-radius: 6px;
+  background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2);
+}
+
+.formActions { display: flex; gap: 0.5rem; align-items: center; }
 
 .btnJoin    { padding: 0.7rem 1.5rem; border-radius: 8px; font-weight: 700; font-size: 0.9rem; cursor: pointer; border: none; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; }
 .btnSubmit  { padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; border: none; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; }
 .btnSubmit:disabled { opacity: 0.5; cursor: not-allowed; }
-.btnLeave   { padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.1); color: #f87171; font-weight: 600; align-self: flex-start; }
-.btnEnd     { padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; border: 1px solid rgba(239,68,68,0.4); background: rgba(239,68,68,0.15); color: #f87171; font-weight: 700; align-self: flex-start; }
-.btnTrigger { padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; border: 1px solid rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); color: #4ade80; font-weight: 700; align-self: flex-start; }
+.btnLeave   { padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.1); color: #f87171; font-weight: 600; }
+.btnEnd     { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.82rem; cursor: pointer; border: 1px solid rgba(239,68,68,0.4); background: rgba(239,68,68,0.15); color: #f87171; font-weight: 700; }
+.btnTrigger { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.82rem; cursor: pointer; border: 1px solid rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); color: #4ade80; font-weight: 700; }
+.btnTrigger:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Mobile */
 @media (max-width: 768px) {
