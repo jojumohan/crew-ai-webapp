@@ -60,6 +60,7 @@ export default function ChatWindow({ target }: ChatWindowProps) {
           senderId: currentUserId,
           targetId: target.id,
           text: msgText,
+          senderName: session?.user?.name || 'User',
         }),
       });
     } catch (err) {

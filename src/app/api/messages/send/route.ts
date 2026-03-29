@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
-import { Groq } from 'groq-sdk';
 
-// This API handles sending messages and AUTOMATICALLY triggers agent replies
-// We moved the Groq initialization INSIDE the function to avoid build errors when the key is missing
 export async function POST(req: NextRequest) {
-  const { senderId, targetId, text } = await req.json();
+  const { senderId, targetId, text, senderName } = await req.json();
   if (!senderId || !targetId || !text) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
   const conversationId = [senderId, targetId].sort().join('_');
-  const timestamp = new Date();
-
-  const apiKey = process.env.GROQ_API_KEY;
-  const groq = new Groq({ apiKey: apiKey || 'DUMMY_FOR_BUILD' });
 
   try {
     // 1. Save user message
@@ -20,38 +13,36 @@ export async function POST(req: NextRequest) {
       conversationId,
       senderId,
       text,
-      timestamp,
+      timestamp: new Date(),
     });
 
-    // 2. Check if the target is an AI Agent
+    // 2. Check if target is an AI Agent
     const targetSnap = await db.collection('users').doc(targetId).get();
     const targetData = targetSnap.exists ? targetSnap.data() : null;
-    const isAgent = targetData?.role === 'agent';
 
-    if (isAgent) {
-      if (!apiKey) {
-         console.warn("GROQ_API_KEY is missing in production environment.");
-         return NextResponse.json({ ok: true, note: "Message saved, but AI brain is missing GROQ_API_KEY." });
+    if (targetData?.role === 'agent') {
+      const agentUrl = process.env.AGENT_URL;
+      if (!agentUrl) {
+        console.warn('AGENT_URL not set');
+        return NextResponse.json({ ok: true });
       }
 
-      // Trigger AI Brain
-      const systemPrompt = `You are ${targetData?.display_name || 'an AI Agent'} at Aronlabz. 
-      You are a full team member. Be professional, helpful, and concise. 
-      Respond to the user naturally in the team chat.`;
-
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
-        ],
-        max_tokens: 500,
-        temperature: 0.7,
+      // Call the real crew AI bot
+      const res = await fetch(`${agentUrl}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_name: senderName || 'User',
+          message: text,
+          agent_name: targetData?.display_name || 'AI Agent',
+        }),
+        signal: AbortSignal.timeout(30000),
       });
 
-      const replyText = completion.choices[0].message.content || "I'm sorry, I couldn't process that.";
+      const data = await res.json();
+      const replyText = data.reply || "Sorry, I couldn't process that.";
 
-      // 3. Save agent's reply
+      // 3. Save agent reply
       await db.collection('messages').add({
         conversationId,
         senderId: targetId,
@@ -62,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    console.error("Agent reply error:", err);
+    console.error('Send message error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
