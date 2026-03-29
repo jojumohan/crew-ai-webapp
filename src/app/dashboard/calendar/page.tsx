@@ -1,4 +1,5 @@
 import Header from '@/components/Header/Header';
+import CalendarView from './CalendarView';
 import styles from '../page.module.css';
 
 export default function CalendarPage() {
@@ -8,14 +9,9 @@ export default function CalendarPage() {
       <div className={styles.page}>
         <div className={styles.welcome}>
           <h1>Calendar</h1>
-          <p>Upcoming events and deadlines.</p>
+          <p>Upcoming events from Aronlabz Google Calendar.</p>
         </div>
-        <div className={`${styles.panel} glass`}>
-          <div className={styles.empty}>
-            <span>◇</span>
-            <p>No events scheduled</p>
-          </div>
-        </div>
+        <CalendarView />
       </div>
     </>
   );
