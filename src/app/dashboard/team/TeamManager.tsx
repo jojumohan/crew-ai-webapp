@@ -8,7 +8,7 @@ type Member = {
   username: string;
   display_name: string;
   email: string | null;
-  role: 'admin' | 'staff';
+  role: 'admin' | 'staff' | 'agent';
   status: 'active' | 'pending';
   created_at: string;
 };
@@ -142,6 +142,7 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
                 <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
+                <option value="agent">AI Agent</option>
               </select>
             </div>
           </div>
@@ -164,7 +165,7 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
                 <div className={styles.name}>{m.display_name || m.username}</div>
                 <div className={styles.meta}>@{m.username}{m.email ? ` · ${m.email}` : ''}</div>
               </div>
-              <span className={`${styles.role} ${m.role === 'admin' ? styles.admin : styles.staff}`}>
+              <span className={`${styles.role} ${m.role === 'admin' ? styles.admin : m.role === 'agent' ? styles.agent : styles.staff}`}>
                 {m.role}
               </span>
               {isAdmin && m.role !== 'admin' && (
