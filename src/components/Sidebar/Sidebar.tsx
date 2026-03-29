@@ -11,6 +11,7 @@ const NAV = [
   { href: '/dashboard/agents',   label: 'Agents',   icon: '🤖' },
   { href: '/dashboard/chat',     label: 'Chat',     icon: '💬' },
   { href: '/dashboard/calendar', label: 'Calendar', icon: '📅' },
+  { href: '/dashboard/team',     label: 'Team',     icon: '👥' },
   { href: '/dashboard/files',    label: 'Files',    icon: '📁' },
 ];
 
