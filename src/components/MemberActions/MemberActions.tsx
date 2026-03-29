@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import styles from './MemberActions.module.css';
 
 interface MemberActionsProps {
@@ -11,6 +12,7 @@ interface MemberActionsProps {
 export default function MemberActions({ userId, userName }: MemberActionsProps) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  const router = useRouter();
 
   async function callUser() {
     setLoading(true);
@@ -34,8 +36,7 @@ export default function MemberActions({ userId, userName }: MemberActionsProps) 
   }
 
   function openChat() {
-    // For now, toggle a global chat event or just alert
-    window.dispatchEvent(new CustomEvent('open-chat', { detail: { userId, userName } }));
+     router.push(`/dashboard/chat?u=${userId}`);
   }
 
   return (

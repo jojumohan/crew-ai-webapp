@@ -8,9 +8,10 @@ import styles from './ChatSidebar.module.css';
 interface ChatSidebarProps {
   onSelect: (user: any) => void;
   activeId?: string;
+  onLoaded?: (users: any[]) => void;
 }
 
-export default function ChatSidebar({ onSelect, activeId }: ChatSidebarProps) {
+export default function ChatSidebar({ onSelect, activeId, onLoaded }: ChatSidebarProps) {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,11 +19,14 @@ export default function ChatSidebar({ onSelect, activeId }: ChatSidebarProps) {
     async function fetchUsers() {
       const q = query(collection(db, 'users'), orderBy('role', 'asc'));
       const snap = await getDocs(q);
-      setUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(list);
       setLoading(false);
+      onLoaded?.(list);
     }
     fetchUsers();
-  }, []);
+  }, [onLoaded]);
+
 
   if (loading) return <div className={styles.loading}>Loading chat list...</div>;
 
