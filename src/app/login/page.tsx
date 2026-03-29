@@ -28,7 +28,11 @@ export default function LoginPage() {
     setLoading(false);
 
     if (res?.error) {
-      setError('Invalid username or password.');
+      if (res.error === 'CallbackRouteError') {
+        setError('Your account is pending admin approval.');
+      } else {
+        setError('Invalid username or password.');
+      }
     } else {
       router.push('/dashboard');
     }
@@ -73,6 +77,11 @@ export default function LoginPage() {
           <button type="submit" className={styles.btn} disabled={loading}>
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
+
+          <p style={{ textAlign: 'center', fontSize: '0.85rem', opacity: 0.5 }}>
+            New member?{' '}
+            <a href="/register" style={{ color: 'var(--primary)' }}>Request access</a>
+          </p>
         </form>
       </div>
     </main>

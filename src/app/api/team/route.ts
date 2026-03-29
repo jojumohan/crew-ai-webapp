@@ -20,7 +20,7 @@ export async function GET() {
 
   const conn = await getConn();
   const [rows] = await conn.execute<any[]>(
-    'SELECT id, username, display_name, email, role, created_at FROM users ORDER BY created_at ASC'
+    'SELECT id, username, display_name, email, role, status, created_at FROM users ORDER BY created_at ASC'
   );
   await conn.end();
   return NextResponse.json({ users: rows });

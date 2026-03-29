@@ -9,6 +9,7 @@ type Member = {
   display_name: string;
   email: string | null;
   role: 'admin' | 'staff';
+  status: 'active' | 'pending';
   created_at: string;
 };
 
@@ -29,6 +30,9 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  const active  = members.filter(m => m.status === 'active');
+  const pending = members.filter(m => m.status === 'pending');
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -64,10 +68,46 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
     else setMsg(data.error || 'Failed');
   }
 
+  async function approve(id: number, action: 'approve' | 'reject', name: string) {
+    if (action === 'reject' && !confirm(`Reject ${name}'s request?`)) return;
+    const res = await fetch('/api/team/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action }),
+    });
+    const data = await res.json();
+    if (data.ok) { setMsg(action === 'approve' ? `${name} approved!` : `${name} rejected.`); load(); }
+    else setMsg(data.error || 'Failed');
+    setTimeout(() => setMsg(''), 3000);
+  }
+
   return (
     <div className={styles.wrap}>
+
+      {/* Pending approvals */}
+      {isAdmin && pending.length > 0 && (
+        <div className={styles.pendingSection}>
+          <div className={styles.pendingTitle}>⏳ Pending Approval ({pending.length})</div>
+          {pending.map(m => (
+            <div key={m.id} className={`${styles.card} ${styles.pendingCard} glass`}>
+              <div className={styles.avatar} style={{ background: 'linear-gradient(135deg,#f59e0b,#ef4444)' }}>
+                {(m.display_name || m.username).slice(0, 2).toUpperCase()}
+              </div>
+              <div className={styles.info}>
+                <div className={styles.name}>{m.display_name || m.username}</div>
+                <div className={styles.meta}>@{m.username}{m.email ? ` · ${m.email}` : ''}</div>
+              </div>
+              <div className={styles.approvalBtns}>
+                <button className={styles.btnApprove} onClick={() => approve(m.id, 'approve', m.display_name || m.username)}>✓ Approve</button>
+                <button className={styles.btnReject}  onClick={() => approve(m.id, 'reject',  m.display_name || m.username)}>✕ Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className={styles.topBar}>
-        <span className={styles.count}>{members.length} member{members.length !== 1 ? 's' : ''}</span>
+        <span className={styles.count}>{active.length} active member{active.length !== 1 ? 's' : ''}</span>
         {isAdmin && (
           <button className={styles.btnAdd} onClick={() => setShowForm(!showForm)}>
             {showForm ? '✕ Cancel' : '+ Add Member'}
@@ -115,7 +155,7 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
         <div className={styles.state}>Loading…</div>
       ) : (
         <div className={styles.list}>
-          {members.map(m => (
+          {active.map(m => (
             <div key={m.id} className={`${styles.card} glass`}>
               <div className={styles.avatar}>
                 {(m.display_name || m.username).slice(0, 2).toUpperCase()}
@@ -128,9 +168,7 @@ export default function TeamManager({ isAdmin }: { isAdmin: boolean }) {
                 {m.role}
               </span>
               {isAdmin && m.role !== 'admin' && (
-                <button className={styles.btnRemove} onClick={() => removeMember(m.id, m.display_name || m.username)}>
-                  ✕
-                </button>
+                <button className={styles.btnRemove} onClick={() => removeMember(m.id, m.display_name || m.username)}>✕</button>
               )}
             </div>
           ))}

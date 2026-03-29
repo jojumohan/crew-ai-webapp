@@ -189,6 +189,59 @@
   padding: 1rem 0;
 }
 
+.pendingSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  border: 1px solid rgba(245,158,11,0.25);
+  background: rgba(245,158,11,0.05);
+}
+
+.pendingTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-bottom: 0.25rem;
+}
+
+.pendingCard {
+  border-color: rgba(245,158,11,0.2) !important;
+}
+
+.approvalBtns {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btnApprove {
+  padding: 0.35rem 0.85rem;
+  border-radius: 7px;
+  background: rgba(16,185,129,0.15);
+  color: #10b981;
+  border: 1px solid rgba(16,185,129,0.3);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnApprove:hover { background: rgba(16,185,129,0.25); }
+
+.btnReject {
+  padding: 0.35rem 0.85rem;
+  border-radius: 7px;
+  background: rgba(239,68,68,0.1);
+  color: #f87171;
+  border: 1px solid rgba(239,68,68,0.25);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnReject:hover { background: rgba(239,68,68,0.2); }
+
 @media (max-width: 768px) {
   .fields {
     grid-template-columns: 1fr;
@@ -196,5 +249,10 @@
 
   .meta {
     max-width: 160px;
+  }
+
+  .approvalBtns {
+    flex-direction: column;
+    gap: 0.35rem;
   }
 }

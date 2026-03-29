@@ -24,7 +24,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           });
 
           const [rows] = await conn.execute<RowDataPacket[]>(
-            'SELECT id, username, email, password_hash, role, display_name FROM users WHERE username = ? LIMIT 1',
+            'SELECT id, username, email, password_hash, role, display_name, status FROM users WHERE username = ? LIMIT 1',
             [credentials.username as string]
           );
           await conn.end();
@@ -33,6 +33,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (!rows.length) return null;
 
           const user = rows[0];
+
+          if (user.status === 'pending') {
+            console.log('[auth] user pending approval');
+            throw new Error('PENDING');
+          }
+
           const valid = await bcrypt.compare(
             credentials.password as string,
             user.password_hash
