@@ -1,6 +1,6 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import mysql from 'mysql2/promise';
+import mysql, { RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -23,10 +23,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             database: process.env.DB_NAME,
           });
 
-          const [rows] = await conn.execute(
+          const [rows] = await conn.execute<RowDataPacket[]>(
             'SELECT id, username, email, password_hash, role, display_name FROM users WHERE username = ? LIMIT 1',
-            [credentials.username]
-          ) as [any[], any];
+            [credentials.username as string]
+          );
           await conn.end();
 
           console.log('[auth] rows found:', rows.length);
