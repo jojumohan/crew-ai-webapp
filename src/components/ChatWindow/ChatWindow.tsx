@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { db } from '@/lib/firebase-client';
 import { useSession } from 'next-auth/react';
-import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, limit, onSnapshot, where } from 'firebase/firestore';
 import styles from './ChatWindow.module.css';
 
 interface ChatWindowProps {
@@ -25,15 +25,17 @@ export default function ChatWindow({ target }: ChatWindowProps) {
     const q = query(
       collection(db, 'messages'),
       where('conversationId', '==', conversationId),
-      orderBy('timestamp', 'asc'),
       limit(100)
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(doc => ({
+      const msgs = snap.docs.map(doc => ({
         ...doc.data(),
-        time: doc.data().timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '...'
-      })));
+        time: doc.data().timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '...',
+        _ts: doc.data().timestamp?.toMillis() ?? 0,
+      }));
+      msgs.sort((a, b) => a._ts - b._ts);
+      setMessages(msgs);
       setTimeout(scrollToBottom, 50);
     });
 

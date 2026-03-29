@@ -24,15 +24,15 @@ export async function POST(req: NextRequest) {
     });
 
     // 2. Check if the target is an AI Agent
-    if (targetId.startsWith('agent_')) {
+    const targetSnap = await db.collection('users').doc(targetId).get();
+    const targetData = targetSnap.exists ? targetSnap.data() : null;
+    const isAgent = targetData?.role === 'agent';
+
+    if (isAgent) {
       if (!apiKey) {
          console.warn("GROQ_API_KEY is missing in production environment.");
          return NextResponse.json({ ok: true, note: "Message saved, but AI brain is missing GROQ_API_KEY." });
       }
-
-      // Fetch target persona from db
-      const targetSnap = await db.collection('users').doc(targetId).get();
-      const targetData = targetSnap.exists ? targetSnap.data() : { display_name: 'AI Agent' };
 
       // Trigger AI Brain
       const systemPrompt = `You are ${targetData?.display_name || 'an AI Agent'} at Aronlabz. 
