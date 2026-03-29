@@ -1,5 +1,8 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import { eq } from 'drizzle-orm';
+import { db } from '@/db';
+import { users } from '@/db/schema';
 import bcrypt from 'bcryptjs';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -12,12 +15,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
-
         try {
-          const { db } = await import('@/db');
-          const { users } = await import('@/db/schema');
-          const { eq } = await import('drizzle-orm');
-
           const [user] = await db
             .select()
             .from(users)
@@ -30,7 +28,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             credentials.password as string,
             user.passwordHash
           );
-
           if (!valid) return null;
 
           return {
