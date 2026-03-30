@@ -5,9 +5,10 @@ import { db } from '@/lib/firebase-client';
 import { useSession } from 'next-auth/react';
 import { collection, query, limit, onSnapshot, where } from 'firebase/firestore';
 import styles from './ChatWindow.module.css';
+import { ChatTarget } from '@/lib/types/chat';
 
 interface ChatWindowProps {
-  target: any;
+  target: ChatTarget | null;
 }
 
 export default function ChatWindow({ target }: ChatWindowProps) {
@@ -21,12 +22,10 @@ export default function ChatWindow({ target }: ChatWindowProps) {
   useEffect(() => {
     if (!target || !currentUserId) return;
 
-    const conversationId = [currentUserId, target.id].sort().join('_');
-    const q = query(
-      collection(db, 'messages'),
-      where('conversationId', '==', conversationId),
-      limit(100)
-    );
+    // Temporary logic: Phase 3 will revamp query rules entirely.
+    const q = target.isChannel 
+      ? query(collection(db, 'messages'), where('target_id', '==', target.id), limit(100))
+      : query(collection(db, 'messages'), where('conversationId', '==', [currentUserId, target.id].sort().join('_')), limit(100));
 
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(doc => ({
@@ -61,6 +60,7 @@ export default function ChatWindow({ target }: ChatWindowProps) {
           targetId: target.id,
           text: msgText,
           senderName: session?.user?.name || 'User',
+          isChannel: target.isChannel
         }),
       });
     } catch (err) {
@@ -75,22 +75,26 @@ export default function ChatWindow({ target }: ChatWindowProps) {
       <div className={styles.empty}>
         <div className={styles.emptyContent}>
            <div className={styles.emptyIcon}>💬</div>
-           <h3>Aronlabz Desktop</h3>
-           <p>Send and receive messages without keeping your phone online.<br/>Use Aronlabz on up to 4 linked devices and 1 phone at the same time.</p>
+           <h3>Unified Communications Hub</h3>
+           <p>Select a channel or team member from the sidebar.<br/>Keep everything synced in one place.</p>
         </div>
       </div>
     );
   }
 
+  const displayName = target.isChannel ? target.name : target.display_name;
+  const initial = target.isChannel ? '#' : (displayName?.[0] || '?');
+  const status = target.isChannel 
+    ? `${target.members?.length || 0} members` 
+    : (target.role === 'agent' ? '🤖 AI Agent (Online)' : 'Online');
+
   return (
     <div className={styles.window}>
       <header className={styles.header}>
-        <div className={styles.avatar}>{target.display_name[0]}</div>
+        <div className={`${styles.avatar} ${target.isChannel ? styles.channelAvatar : ''}`}>{initial}</div>
         <div className={styles.headerInfo}>
-          <div className={styles.headerName}>{target.display_name}</div>
-          <div className={styles.headerStatus}>
-            {target.role === 'agent' ? '🤖 AI Agent (Online)' : 'Online'}
-          </div>
+          <div className={styles.headerName}>{displayName}</div>
+          <div className={styles.headerStatus}>{status}</div>
         </div>
       </header>
 
@@ -111,7 +115,7 @@ export default function ChatWindow({ target }: ChatWindowProps) {
 
       <form className={styles.inputArea} onSubmit={sendMessage}>
         <input 
-          placeholder="Type a message"
+          placeholder={`Message ${target.isChannel ? '#' : ''}${displayName}`}
           value={text} 
           onChange={(e) => setText(e.target.value)}
           autoFocus
