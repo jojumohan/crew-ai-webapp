@@ -120,6 +120,15 @@ function VoiceRoomContent() {
     setRinging(false);
   }
 
+  // Auto-ring when meeting is active but user hasn't joined yet
+  useEffect(() => {
+    if (meetingActive && !inCall && !starting) {
+      startRing();
+    } else {
+      stopRing();
+    }
+  }, [meetingActive, inCall, starting]);
+
   // ── Sarvam TTS: agent speaks ──────────────────────────────────────────────
   async function agentSpeak(text: string) {
     setAgentSpeaking(true);
