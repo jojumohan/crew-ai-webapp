@@ -78,12 +78,11 @@ function VoiceRoomContent() {
   const ringAudio     = useRef<HTMLAudioElement | null>(null);
   const notesEndRef   = useRef<HTMLDivElement>(null);
 
-  // Poll meeting status + notes
+  // Poll meeting notes
   const pollMeeting = useCallback(async () => {
     try {
       const res  = await fetch('/api/meeting/status');
       const data = await res.json();
-      setMeetingActive(data.active);
       setNotes(data.notes?.slice(-30) || []);
     } catch {}
   }, []);
@@ -91,7 +90,14 @@ function VoiceRoomContent() {
   useEffect(() => {
     pollMeeting();
     const t = setInterval(pollMeeting, 8000);
-    return () => clearInterval(t);
+    
+    const unsubState = onSnapshot(doc(db, 'standup_state', 'global'), (snap) => {
+      if (snap.exists() && typeof snap.data().active === 'boolean') {
+        setMeetingActive(snap.data().active);
+      }
+    });
+
+    return () => { clearInterval(t); unsubState(); };
   }, [pollMeeting]);
 
   useEffect(() => {
@@ -404,6 +410,7 @@ function VoiceRoomContent() {
     
     // Optimistically set active so Join button surfaces instantly
     setMeetingActive(true);
+    setDoc(doc(db, 'standup_state', 'global'), { active: true, by: userName, ts: serverTimestamp() }).catch(() => {});
 
     await fetch('/api/agent/trigger', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -421,6 +428,7 @@ function VoiceRoomContent() {
   }
 
   async function endMeeting() {
+    setDoc(doc(db, 'standup_state', 'global'), { active: false, by: userName, ts: serverTimestamp() }).catch(() => {});
     await fetch('/api/agent/trigger', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'end' }),
