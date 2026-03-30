@@ -55,7 +55,7 @@ export default function MeetRoom({ roomName, userName }: MeetRoomProps) {
               background: '#0b141a',
               backgroundAccent: '#202c33',
               baseText: '#e9edef',
-              border: 'rgba(255, 255, 255, 0.1)',
+              border: '#2a3942',
               mainAreaBg: '#111b21',
               mainAreaBgAccent: '#202c33',
               mainAreaText: '#e9edef',
