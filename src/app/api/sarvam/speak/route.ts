@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const aiRes = await fetch(`${AGENT_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_name: speakerName, message: transcript }),
+      body: JSON.stringify({ user_name: speakerName, message: transcript, channel: 'voice' }),
       signal: AbortSignal.timeout(30000),
     });
     const aiData = await aiRes.json();

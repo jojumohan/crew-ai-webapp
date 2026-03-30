@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           user_name: senderName || 'User',
           message: text,
-          agent_name: targetData?.display_name || 'AI Agent',
+          channel: 'chat',
         }),
         signal: AbortSignal.timeout(30000),
       });
