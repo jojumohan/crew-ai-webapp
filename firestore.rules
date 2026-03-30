@@ -12,5 +12,11 @@ service cloud.firestore {
     match /standup_room/{document=**} {
       allow read, write: if true;
     }
+    match /standup_presence/{document=**} {
+      allow read, write: if true;
+    }
+    match /standup_signals/{document=**} {
+      allow read, write: if true;
+    }
   }
 }

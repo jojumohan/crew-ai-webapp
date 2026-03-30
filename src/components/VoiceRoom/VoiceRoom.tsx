@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { db } from '@/lib/firebase-client';
 import {
   collection, doc, setDoc, deleteDoc, onSnapshot,
-  addDoc, serverTimestamp, query, orderBy,
+  addDoc, serverTimestamp, query, where,
 } from 'firebase/firestore';
 import styles from './VoiceRoom.module.css';
 
@@ -15,21 +15,27 @@ const ICE_CONFIG = {
     { urls: 'stun:stun1.l.google.com:19302' },
   ],
 };
-const ROOM = 'standup_room';
+
+// Firestore collections — must have correct segment counts:
+// doc() needs EVEN segments, collection() needs ODD segments
+const PRESENCE_COL = 'standup_presence';   // 1 segment — collection ✓
+const SIGNALS_COL  = 'standup_signals';    // 1 segment — collection ✓
 
 interface Peer { id: string; name: string; }
 
 function playBase64Wav(base64: string): HTMLAudioElement | null {
   if (!base64) return null;
   try {
-    const bytes  = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    // Strip data URI prefix if present
+    const b64 = base64.includes(',') ? base64.split(',')[1] : base64;
+    const bytes  = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     const blob   = new Blob([bytes], { type: 'audio/wav' });
     const url    = URL.createObjectURL(blob);
     const audio  = new Audio(url);
     audio.onended = () => URL.revokeObjectURL(url);
-    audio.play().catch(() => {});
+    audio.play().catch(e => console.warn('Audio play blocked:', e));
     return audio;
-  } catch { return null; }
+  } catch (e) { console.error('playBase64Wav error:', e); return null; }
 }
 
 export default function VoiceRoom() {
@@ -59,10 +65,6 @@ export default function VoiceRoom() {
   const audioChunks   = useRef<Blob[]>([]);
   const ringAudio     = useRef<HTMLAudioElement | null>(null);
   const notesEndRef   = useRef<HTMLDivElement>(null);
-  const peersRef      = useRef<Peer[]>([]);
-
-  // Keep peersRef in sync
-  useEffect(() => { peersRef.current = peers; }, [peers]);
 
   // Poll meeting status + notes
   const pollMeeting = useCallback(async () => {
@@ -111,18 +113,21 @@ export default function VoiceRoom() {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      const audio = playBase64Wav(data.audio);
-      if (audio) {
-        audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); };
-        return;
+      if (data.audio) {
+        const audio = playBase64Wav(data.audio);
+        if (audio) {
+          audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); };
+          return;
+        }
       }
-    } catch {}
+      console.warn('TTS returned no audio:', data);
+    } catch (e) { console.error('agentSpeak error:', e); }
     setAgentSpeaking(false);
     setAgentStatus('Listening…');
   }
 
   // ── WebRTC helpers ────────────────────────────────────────────────────────
-  function makePeerConn(peerId: string, peerName: string): RTCPeerConnection {
+  function makePeerConn(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(ICE_CONFIG);
     peerConns.current[peerId] = pc;
 
@@ -133,14 +138,14 @@ export default function VoiceRoom() {
       if (!audio) { audio = new Audio(); remoteAudios.current[peerId] = audio; }
       audio.srcObject = e.streams[0];
       audio.play().catch(() => {});
-      // Someone joined — stop ring
       stopRing();
     };
 
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
-      addDoc(collection(db, ROOM, 'signals', peerId, 'in'), {
-        from: myId.current, type: 'ice', data: e.candidate.toJSON(), ts: serverTimestamp(),
+      addDoc(collection(db, SIGNALS_COL), {
+        to: peerId, from: myId.current, type: 'ice',
+        data: e.candidate.toJSON(), ts: serverTimestamp(),
       }).catch(() => {});
     };
 
@@ -162,13 +167,14 @@ export default function VoiceRoom() {
     if (from === myId.current) return;
 
     if (type === 'offer') {
-      const pc = peerConns.current[from] || makePeerConn(from, fromName || 'Teammate');
+      const pc = peerConns.current[from] || makePeerConn(from);
       setPeers(p => p.find(x => x.id === from) ? p : [...p, { id: from, name: fromName || 'Teammate' }]);
       await pc.setRemoteDescription(new RTCSessionDescription(data));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      addDoc(collection(db, ROOM, 'signals', from, 'in'), {
-        from: myId.current, fromName: userName, type: 'answer', data: answer, ts: serverTimestamp(),
+      addDoc(collection(db, SIGNALS_COL), {
+        to: from, from: myId.current, fromName: userName, type: 'answer',
+        data: answer, ts: serverTimestamp(),
       }).catch(() => {});
 
     } else if (type === 'answer') {
@@ -184,18 +190,22 @@ export default function VoiceRoom() {
   }
 
   async function callPeer(peerId: string, peerName: string) {
-    const pc = makePeerConn(peerId, peerName);
+    const pc = makePeerConn(peerId);
     setPeers(p => p.find(x => x.id === peerId) ? p : [...p, { id: peerId, name: peerName }]);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    addDoc(collection(db, ROOM, 'signals', peerId, 'in'), {
-      from: myId.current, fromName: userName, type: 'offer', data: offer, ts: serverTimestamp(),
+    addDoc(collection(db, SIGNALS_COL), {
+      to: peerId, from: myId.current, fromName: userName, type: 'offer',
+      data: offer, ts: serverTimestamp(),
     }).catch(() => {});
-    startRing(); // Ring while waiting for them to answer
+    startRing();
   }
 
   // ── Join ──────────────────────────────────────────────────────────────────
   async function joinCall() {
+    // Unlock audio context immediately on user gesture (before any async gaps)
+    try { const ctx = new AudioContext(); await ctx.resume(); ctx.close(); } catch {}
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -206,58 +216,76 @@ export default function VoiceRoom() {
     localStream.current = stream;
     setInCall(true);
 
-    // Register presence
+    // Register presence — doc(db, col, docId) = 2 segments ✓
     try {
-      await setDoc(doc(db, ROOM, 'presence', myId.current), {
+      await setDoc(doc(db, PRESENCE_COL, myId.current), {
         name: userName, joinedAt: serverTimestamp(),
       });
     } catch (e) { console.error('Presence write failed:', e); }
 
-    // Listen for my signals
-    const sigUnsub = onSnapshot(
-      query(collection(db, ROOM, 'signals', myId.current, 'in'), orderBy('ts', 'asc')),
-      snap => snap.docChanges().forEach(ch => { if (ch.type === 'added') handleSignal(ch.doc.data()); }),
-      () => {}
-    );
+    // Listen for signals addressed to me — where('to', '==', myId) ✓
+    let sigUnsub: () => void = () => {};
+    try {
+      sigUnsub = onSnapshot(
+        query(collection(db, SIGNALS_COL), where('to', '==', myId.current)),
+        snap => {
+          snap.docChanges().forEach(ch => {
+            if (ch.type === 'added') {
+              handleSignal(ch.doc.data()).catch(() => {});
+              // Clean up processed signals
+              deleteDoc(ch.doc.ref).catch(() => {});
+            }
+          });
+        },
+        e => console.error('Signal listener error:', e),
+      );
+    } catch (e) { console.error('Failed to start signal listener:', e); }
 
-    // Listen for others
-    const presUnsub = onSnapshot(collection(db, ROOM, 'presence'), snap => {
-      snap.docChanges().forEach(ch => {
-        const pid = ch.doc.id;
-        if (pid === myId.current) return;
-        const pName = ch.doc.data().name || 'Teammate';
-        if (ch.type === 'added') {
-          if (myId.current < pid) callPeer(pid, pName);
-        }
-        if (ch.type === 'removed') {
-          peerConns.current[pid]?.close();
-          delete peerConns.current[pid];
-          remoteAudios.current[pid]?.pause();
-          delete remoteAudios.current[pid];
-          setPeers(p => p.filter(x => x.id !== pid));
-        }
-      });
-    }, () => {});
+    // Listen for presence changes
+    let presUnsub: () => void = () => {};
+    try {
+      presUnsub = onSnapshot(
+        collection(db, PRESENCE_COL),
+        snap => {
+          snap.docChanges().forEach(ch => {
+            const pid = ch.doc.id;
+            if (pid === myId.current) return;
+            const pName = ch.doc.data().name || 'Teammate';
+            if (ch.type === 'added') {
+              if (myId.current < pid) callPeer(pid, pName).catch(() => {});
+            }
+            if (ch.type === 'removed') {
+              peerConns.current[pid]?.close();
+              delete peerConns.current[pid];
+              remoteAudios.current[pid]?.pause();
+              delete remoteAudios.current[pid];
+              setPeers(p => p.filter(x => x.id !== pid));
+            }
+          });
+        },
+        e => console.error('Presence listener error:', e),
+      );
+    } catch (e) { console.error('Failed to start presence listener:', e); }
 
     unsubs.current = [sigUnsub, presUnsub];
 
-    // Mark attendance
+    // Mark attendance on VPS
     fetch('/api/meeting/join', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: userName }),
     }).catch(() => {});
 
-    // Agent greets immediately via Sarvam TTS
+    // Agent greets via Sarvam TTS
     agentSpeak(`Good morning ${userName}! I'm your AI Chief of Staff. Welcome to the standup. Please go ahead and share your update. Hold the Talk to Agent button to speak to me directly.`);
   }
 
   // ── Leave ─────────────────────────────────────────────────────────────────
   async function leaveCall() {
     stopRing();
-    mediaRec.current?.stop();
+    try { mediaRec.current?.stop(); } catch {}
 
-    // Firestore cleanup
-    deleteDoc(doc(db, ROOM, 'presence', myId.current)).catch(() => {});
+    // Firestore cleanup — wrapped in try so setInCall(false) is ALWAYS reached
+    try { await deleteDoc(doc(db, PRESENCE_COL, myId.current)); } catch {}
 
     // Close all peer connections
     Object.values(peerConns.current).forEach(pc => { try { pc.close(); } catch {} });
@@ -269,11 +297,11 @@ export default function VoiceRoom() {
     localStream.current?.getTracks().forEach(t => { try { t.stop(); } catch {} });
     localStream.current = null;
 
-    // Unsubscribe
+    // Unsubscribe Firestore listeners
     unsubs.current.forEach(fn => { try { fn(); } catch {} });
     unsubs.current = [];
 
-    // Mark leave
+    // Mark leave on VPS
     fetch('/api/meeting/leave', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: userName }),
@@ -284,7 +312,7 @@ export default function VoiceRoom() {
     setAgentReply('');
     setAgentStatus('Waiting…');
     setAgentSpeaking(false);
-    setInCall(false);
+    setInCall(false); // Always reached
   }
 
   // Cleanup on unmount
@@ -357,9 +385,11 @@ export default function VoiceRoom() {
     }).catch(() => {});
     for (let i = 0; i < 8; i++) {
       await new Promise(r => setTimeout(r, 2000));
-      const res  = await fetch('/api/meeting/status');
-      const data = await res.json();
-      if (data.active) { setMeetingActive(true); break; }
+      try {
+        const res  = await fetch('/api/meeting/status');
+        const data = await res.json();
+        if (data.active) { setMeetingActive(true); break; }
+      } catch {}
     }
     setStarting(false);
   }
@@ -397,7 +427,7 @@ export default function VoiceRoom() {
         <div className={styles.leftCol}>
 
           {/* Agent card */}
-          <div className={`${styles.card} ${styles.agentCard} glass`}>
+          <div className={`${styles.card} ${styles.agentCard}`}>
             <div className={`${styles.avatarRing} ${agentSpeaking ? styles.ringSpeaking : ''}`}>
               <div className={`${styles.avatar} ${styles.agentAvatar}`}>🤖</div>
             </div>
@@ -410,9 +440,9 @@ export default function VoiceRoom() {
             )}
           </div>
 
-          {/* Self card (only when in call) */}
+          {/* Self card */}
           {inCall && (
-            <div className={`${styles.card} ${styles.selfCard} glass`}>
+            <div className={`${styles.card} ${styles.selfCard}`}>
               <div className={`${styles.avatarRing} ${recording ? styles.ringSpeaking : ''}`}>
                 <div className={styles.avatar}>{userName[0]?.toUpperCase()}</div>
               </div>
@@ -425,7 +455,7 @@ export default function VoiceRoom() {
 
           {/* Remote peers */}
           {peers.map(p => (
-            <div key={p.id} className={`${styles.card} glass`}>
+            <div key={p.id} className={styles.card}>
               <div className={styles.avatarRing}>
                 <div className={styles.avatar}>{p.name[0]?.toUpperCase()}</div>
               </div>
@@ -434,9 +464,9 @@ export default function VoiceRoom() {
             </div>
           ))}
 
-          {/* Standup controls (admin) */}
+          {/* Admin standup controls */}
           {isAdmin && (
-            <div className={`${styles.standupCtrl} glass`}>
+            <div className={styles.standupCtrl}>
               <div className={styles.ctrlLabel}>Admin Controls</div>
               {!meetingActive ? (
                 <button className={styles.btnStartMeeting} onClick={startStandup} disabled={starting}>
@@ -454,7 +484,7 @@ export default function VoiceRoom() {
 
           {/* Transcript / agent reply */}
           {(transcript || agentReply) && (
-            <div className={`${styles.transcriptBox} glass`}>
+            <div className={styles.transcriptBox}>
               {transcript && (
                 <div className={styles.tLine}>
                   <span className={styles.tYou}>You said:</span> {transcript}
@@ -469,7 +499,7 @@ export default function VoiceRoom() {
           )}
 
           {/* Notes feed */}
-          <div className={`${styles.notesPanelWrap} glass`}>
+          <div className={styles.notesPanelWrap}>
             <div className={styles.notesTitle}>📝 Meeting Notes</div>
             <div className={styles.notesFeed}>
               {notes.length ? notes.map((n, i) => (
@@ -488,7 +518,7 @@ export default function VoiceRoom() {
           </div>
 
           {/* Controls bar */}
-          <div className={`${styles.controls} glass`}>
+          <div className={styles.controls}>
             {!inCall ? (
               <button className={styles.btnJoin} onClick={joinCall}>
                 📞 Join Call
@@ -515,9 +545,7 @@ export default function VoiceRoom() {
                 </button>
               </>
             )}
-            {ringing && (
-              <span className={styles.ringingBadge}>📳 Ringing…</span>
-            )}
+            {ringing && <span className={styles.ringingBadge}>📳 Ringing…</span>}
           </div>
 
         </div>
