@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { db } from '@/lib/firebase-client';
 import {
@@ -39,7 +40,18 @@ function playBase64Wav(base64: string): HTMLAudioElement | null {
 }
 
 export default function VoiceRoom() {
+  return (
+    <Suspense fallback={<div style={{padding: '2rem'}}>Loading...</div>}>
+      <VoiceRoomContent />
+    </Suspense>
+  );
+}
+
+function VoiceRoomContent() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const defaultJoinParam = searchParams.get('action') === 'join';
+  
   const userName = (session?.user as any)?.display_name || session?.user?.name || 'User';
   const isAdmin  = (session?.user as any)?.role === 'admin';
   const myId     = useRef(`u_${Math.random().toString(36).slice(2, 9)}`);
@@ -52,7 +64,7 @@ export default function VoiceRoom() {
   const [recording,     setRecording]     = useState(false);
   const [transcript,    setTranscript]    = useState('');
   const [agentReply,    setAgentReply]    = useState('');
-  const [meetingActive, setMeetingActive] = useState(false);
+  const [meetingActive, setMeetingActive] = useState(defaultJoinParam);
   const [starting,      setStarting]      = useState(false);
   const [notes,         setNotes]         = useState<{ speaker: string; content: string; time: string }[]>([]);
   const [ringing,       setRinging]       = useState(false);
@@ -379,6 +391,20 @@ export default function VoiceRoom() {
   // ── Standup controls ──────────────────────────────────────────────────────
   async function startStandup() {
     setStarting(true);
+    
+    // Ring the team via push notification immediately
+    fetch('/api/push/ring', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '🤖 Agent Call',
+        body: `${userName} started the AI Chief of Staff standup. Join now!`,
+        url: '/dashboard/agents?action=join'
+      })
+    }).catch(() => {});
+    
+    // Optimistically set active so Join button surfaces instantly
+    setMeetingActive(true);
+
     await fetch('/api/agent/trigger', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'standup' }),
