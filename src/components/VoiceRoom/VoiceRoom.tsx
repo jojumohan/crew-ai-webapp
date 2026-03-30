@@ -520,9 +520,15 @@ export default function VoiceRoom() {
           {/* Controls bar */}
           <div className={styles.controls}>
             {!inCall ? (
-              <button className={styles.btnJoin} onClick={joinCall}>
-                📞 Join Call
-              </button>
+              meetingActive ? (
+                <button className={styles.btnJoin} onClick={joinCall}>
+                  📞 Join Call
+                </button>
+              ) : (
+                <button className={styles.btnJoin} disabled style={{ opacity: 0.5, cursor: 'not-allowed' }}>
+                  ⏳ Waiting for Standup to Start...
+                </button>
+              )
             ) : (
               <>
                 <button
