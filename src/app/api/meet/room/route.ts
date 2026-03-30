@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     
     // 2. If it already exists, fetch the existing room's url
     if (data.info && data.info.includes('already exists')) {
-       const getRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+       const getRes = await fetch(`https://api.daily.co/v1/rooms/${validRoomName}`, {
          headers: { Authorization: `Bearer ${apiKey}` }
        });
        if (getRes.ok) {

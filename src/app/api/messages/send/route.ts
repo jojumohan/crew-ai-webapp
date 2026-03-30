@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
+      // Email agent gets its own channel so it always has inbox context
+      const channel = targetData?.username === 'agent_email' ? 'email' : 'chat';
+
       // Call the real crew AI bot
       const res = await fetch(`${agentUrl}/chat`, {
         method: 'POST',
@@ -34,13 +37,28 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           user_name: senderName || 'User',
           message: text,
-          channel: 'chat',
+          channel,
         }),
         signal: AbortSignal.timeout(30000),
       });
 
       const data = await res.json();
-      const replyText = data.reply || "Sorry, I couldn't process that.";
+      let replyText = data.reply || "Sorry, I couldn't process that.";
+
+      // If agent wants to send an email, execute it and append result
+      for (const action of (data.actions || [])) {
+        if (action.type === 'email_send' && action.to) {
+          try {
+            const sendRes = await fetch(`${agentUrl}/email/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: action.to, subject: action.subject, body: action.body }),
+            });
+            const sendData = await sendRes.json();
+            if (sendData.ok) replyText += `\n\n✅ Email sent to ${action.to}`;
+          } catch { /* silent */ }
+        }
+      }
 
       // 3. Save agent reply
       await db.collection('messages').add({
