@@ -5,64 +5,70 @@ import { useSession } from 'next-auth/react';
 import { db } from '@/lib/firebase-client';
 import {
   collection, doc, setDoc, deleteDoc, onSnapshot,
-  addDoc, serverTimestamp, query, orderBy, limit,
+  addDoc, serverTimestamp, query, orderBy,
 } from 'firebase/firestore';
 import styles from './VoiceRoom.module.css';
 
-const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
 const ROOM = 'standup_room';
 
 interface Peer { id: string; name: string; }
 
-function playBase64Wav(base64: string) {
-  if (!base64) return;
+function playBase64Wav(base64: string): HTMLAudioElement | null {
+  if (!base64) return null;
   try {
-    const binary = atob(base64);
-    const bytes  = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'audio/wav' });
-    const url  = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+    const bytes  = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const blob   = new Blob([bytes], { type: 'audio/wav' });
+    const url    = URL.createObjectURL(blob);
+    const audio  = new Audio(url);
     audio.onended = () => URL.revokeObjectURL(url);
     audio.play().catch(() => {});
     return audio;
-  } catch {}
+  } catch { return null; }
 }
 
 export default function VoiceRoom() {
   const { data: session } = useSession();
-  const userName  = (session?.user as any)?.display_name || session?.user?.name || 'User';
-  const isAdmin   = (session?.user as any)?.role === 'admin';
-  const userId    = useRef(`user_${Math.random().toString(36).slice(2, 9)}`);
+  const userName = (session?.user as any)?.display_name || session?.user?.name || 'User';
+  const isAdmin  = (session?.user as any)?.role === 'admin';
+  const myId     = useRef(`u_${Math.random().toString(36).slice(2, 9)}`);
 
   const [inCall,        setInCall]        = useState(false);
   const [muted,         setMuted]         = useState(false);
   const [peers,         setPeers]         = useState<Peer[]>([]);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
+  const [agentStatus,   setAgentStatus]   = useState('Waiting…');
   const [recording,     setRecording]     = useState(false);
   const [transcript,    setTranscript]    = useState('');
   const [agentReply,    setAgentReply]    = useState('');
   const [meetingActive, setMeetingActive] = useState(false);
   const [starting,      setStarting]      = useState(false);
-  const [notes,         setNotes]         = useState<{speaker:string;content:string;time:string}[]>([]);
-  const [agentStatus,   setAgentStatus]   = useState('Waiting for standup…');
+  const [notes,         setNotes]         = useState<{ speaker: string; content: string; time: string }[]>([]);
+  const [ringing,       setRinging]       = useState(false);
 
-  const localStream    = useRef<MediaStream | null>(null);
-  const peerConns      = useRef<Record<string, RTCPeerConnection>>({});
-  const remoteAudios   = useRef<Record<string, HTMLAudioElement>>({});
-  const mediaRecorder  = useRef<MediaRecorder | null>(null);
-  const audioChunks    = useRef<Blob[]>([]);
-  const unsubscribers  = useRef<(() => void)[]>([]);
-  const notesEndRef    = useRef<HTMLDivElement>(null);
+  const localStream   = useRef<MediaStream | null>(null);
+  const peerConns     = useRef<Record<string, RTCPeerConnection>>({});
+  const remoteAudios  = useRef<Record<string, HTMLAudioElement>>({});
+  const unsubs        = useRef<(() => void)[]>([]);
+  const mediaRec      = useRef<MediaRecorder | null>(null);
+  const audioChunks   = useRef<Blob[]>([]);
+  const ringAudio     = useRef<HTMLAudioElement | null>(null);
+  const notesEndRef   = useRef<HTMLDivElement>(null);
+  const peersRef      = useRef<Peer[]>([]);
 
-  // Poll meeting status + notes from VPS
+  // Keep peersRef in sync
+  useEffect(() => { peersRef.current = peers; }, [peers]);
+
+  // Poll meeting status + notes
   const pollMeeting = useCallback(async () => {
     try {
-      const [statusRes, notesRes] = await Promise.all([
-        fetch('/api/meeting/status'),
-        fetch('/api/meeting/status'),
-      ]);
-      const data = await statusRes.json();
+      const res  = await fetch('/api/meeting/status');
+      const data = await res.json();
       setMeetingActive(data.active);
       setNotes(data.notes?.slice(-30) || []);
     } catch {}
@@ -78,38 +84,71 @@ export default function VoiceRoom() {
     notesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [notes]);
 
-  // ── WebRTC helpers ──────────────────────────────────────────────────────────
+  // ── Ring tone ─────────────────────────────────────────────────────────────
+  function startRing() {
+    if (ringAudio.current) return;
+    const a = new Audio('/ring.mp3');
+    a.loop = true;
+    a.play().catch(() => {});
+    ringAudio.current = a;
+    setRinging(true);
+  }
 
-  function createPeerConn(peerId: string, peerName: string) {
-    const pc = new RTCPeerConnection(ICE);
+  function stopRing() {
+    ringAudio.current?.pause();
+    ringAudio.current = null;
+    setRinging(false);
+  }
+
+  // ── Sarvam TTS: agent speaks ──────────────────────────────────────────────
+  async function agentSpeak(text: string) {
+    setAgentSpeaking(true);
+    setAgentStatus('Speaking…');
+    try {
+      const res  = await fetch('/api/sarvam/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      const audio = playBase64Wav(data.audio);
+      if (audio) {
+        audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); };
+        return;
+      }
+    } catch {}
+    setAgentSpeaking(false);
+    setAgentStatus('Listening…');
+  }
+
+  // ── WebRTC helpers ────────────────────────────────────────────────────────
+  function makePeerConn(peerId: string, peerName: string): RTCPeerConnection {
+    const pc = new RTCPeerConnection(ICE_CONFIG);
     peerConns.current[peerId] = pc;
 
-    // Add local audio track
     localStream.current?.getTracks().forEach(t => pc.addTrack(t, localStream.current!));
 
-    // Remote audio
     pc.ontrack = (e) => {
-      const audio = remoteAudios.current[peerId] || new Audio();
-      remoteAudios.current[peerId] = audio;
+      let audio = remoteAudios.current[peerId];
+      if (!audio) { audio = new Audio(); remoteAudios.current[peerId] = audio; }
       audio.srcObject = e.streams[0];
       audio.play().catch(() => {});
+      // Someone joined — stop ring
+      stopRing();
     };
 
-    // ICE candidates → Firestore
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
-      addDoc(collection(db, ROOM, 'signals', peerId, 'incoming'), {
-        from: userId.current,
-        type: 'ice',
-        data: e.candidate.toJSON(),
-        ts: serverTimestamp(),
-      });
+      addDoc(collection(db, ROOM, 'signals', peerId, 'in'), {
+        from: myId.current, type: 'ice', data: e.candidate.toJSON(), ts: serverTimestamp(),
+      }).catch(() => {});
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         pc.close();
         delete peerConns.current[peerId];
+        remoteAudios.current[peerId]?.pause();
         delete remoteAudios.current[peerId];
         setPeers(p => p.filter(x => x.id !== peerId));
       }
@@ -120,25 +159,23 @@ export default function VoiceRoom() {
 
   async function handleSignal(signal: any) {
     const { from, fromName, type, data } = signal;
-    if (from === userId.current) return;
+    if (from === myId.current) return;
 
     if (type === 'offer') {
-      const pc = peerConns.current[from] || createPeerConn(from, fromName);
-      setPeers(p => p.find(x => x.id === from) ? p : [...p, { id: from, name: fromName }]);
+      const pc = peerConns.current[from] || makePeerConn(from, fromName || 'Teammate');
+      setPeers(p => p.find(x => x.id === from) ? p : [...p, { id: from, name: fromName || 'Teammate' }]);
       await pc.setRemoteDescription(new RTCSessionDescription(data));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      addDoc(collection(db, ROOM, 'signals', from, 'incoming'), {
-        from: userId.current,
-        fromName: userName,
-        type: 'answer',
-        data: answer,
-        ts: serverTimestamp(),
-      });
+      addDoc(collection(db, ROOM, 'signals', from, 'in'), {
+        from: myId.current, fromName: userName, type: 'answer', data: answer, ts: serverTimestamp(),
+      }).catch(() => {});
 
     } else if (type === 'answer') {
       const pc = peerConns.current[from];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data));
+      if (pc && pc.signalingState !== 'stable') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data)).catch(() => {});
+      }
 
     } else if (type === 'ice') {
       const pc = peerConns.current[from];
@@ -147,167 +184,147 @@ export default function VoiceRoom() {
   }
 
   async function callPeer(peerId: string, peerName: string) {
-    const pc = createPeerConn(peerId, peerName);
+    const pc = makePeerConn(peerId, peerName);
     setPeers(p => p.find(x => x.id === peerId) ? p : [...p, { id: peerId, name: peerName }]);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    addDoc(collection(db, ROOM, 'signals', peerId, 'incoming'), {
-      from: userId.current,
-      fromName: userName,
-      type: 'offer',
-      data: offer,
-      ts: serverTimestamp(),
-    });
+    addDoc(collection(db, ROOM, 'signals', peerId, 'in'), {
+      from: myId.current, fromName: userName, type: 'offer', data: offer, ts: serverTimestamp(),
+    }).catch(() => {});
+    startRing(); // Ring while waiting for them to answer
   }
 
-  // ── Join / Leave ────────────────────────────────────────────────────────────
-
+  // ── Join ──────────────────────────────────────────────────────────────────
   async function joinCall() {
-    // Get mic
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     } catch {
-      alert('Microphone permission denied. Please allow microphone access.');
+      alert('Microphone permission denied. Please allow mic access in your browser.');
       return;
     }
     localStream.current = stream;
     setInCall(true);
 
-    const myId   = userId.current;
-    const myDoc  = doc(db, ROOM, 'presence', myId);
-    await setDoc(myDoc, { name: userName, joinedAt: serverTimestamp() });
+    // Register presence
+    try {
+      await setDoc(doc(db, ROOM, 'presence', myId.current), {
+        name: userName, joinedAt: serverTimestamp(),
+      });
+    } catch (e) { console.error('Presence write failed:', e); }
 
     // Listen for my signals
     const sigUnsub = onSnapshot(
-      query(collection(db, ROOM, 'signals', myId, 'incoming'), orderBy('ts', 'asc')),
-      snap => snap.docChanges().forEach(ch => { if (ch.type === 'added') handleSignal(ch.doc.data()); })
+      query(collection(db, ROOM, 'signals', myId.current, 'in'), orderBy('ts', 'asc')),
+      snap => snap.docChanges().forEach(ch => { if (ch.type === 'added') handleSignal(ch.doc.data()); }),
+      () => {}
     );
 
-    // Listen for others joining/leaving
+    // Listen for others
     const presUnsub = onSnapshot(collection(db, ROOM, 'presence'), snap => {
       snap.docChanges().forEach(ch => {
         const pid = ch.doc.id;
-        if (pid === myId) return;
+        if (pid === myId.current) return;
+        const pName = ch.doc.data().name || 'Teammate';
         if (ch.type === 'added') {
-          const pdata = ch.doc.data();
-          // I call the newcomer if I'm older (lexicographic order)
-          if (myId < pid) callPeer(pid, pdata.name);
+          if (myId.current < pid) callPeer(pid, pName);
         }
         if (ch.type === 'removed') {
           peerConns.current[pid]?.close();
           delete peerConns.current[pid];
+          remoteAudios.current[pid]?.pause();
           delete remoteAudios.current[pid];
           setPeers(p => p.filter(x => x.id !== pid));
         }
       });
-    });
+    }, () => {});
 
-    // Agent joins: register attendance + speak greeting
-    await fetch('/api/meeting/join', {
+    unsubs.current = [sigUnsub, presUnsub];
+
+    // Mark attendance
+    fetch('/api/meeting/join', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: userName }),
-    });
+    }).catch(() => {});
 
-    // Agent greeting via Sarvam TTS (only first person to join)
-    const presSnap = await import('firebase/firestore').then(({ getDocs }) =>
-      getDocs(collection(db, ROOM, 'presence'))
-    );
-    if (presSnap.size <= 1) {
-      agentSpeak(`Good morning ${userName}! I'm your AI Chief of Staff. The standup room is now open. Please share your updates when ready.`);
-    }
-
-    unsubscribers.current = [sigUnsub, presUnsub];
-
-    // Cleanup on tab close
-    window.addEventListener('beforeunload', leaveCall);
+    // Agent greets immediately via Sarvam TTS
+    agentSpeak(`Good morning ${userName}! I'm your AI Chief of Staff. Welcome to the standup. Please go ahead and share your update. Hold the Talk to Agent button to speak to me directly.`);
   }
 
+  // ── Leave ─────────────────────────────────────────────────────────────────
   async function leaveCall() {
-    // Firestore cleanup
-    await deleteDoc(doc(db, ROOM, 'presence', userId.current)).catch(() => {});
+    stopRing();
+    mediaRec.current?.stop();
 
-    // Close peer connections
-    Object.values(peerConns.current).forEach(pc => pc.close());
+    // Firestore cleanup
+    deleteDoc(doc(db, ROOM, 'presence', myId.current)).catch(() => {});
+
+    // Close all peer connections
+    Object.values(peerConns.current).forEach(pc => { try { pc.close(); } catch {} });
     peerConns.current = {};
-    Object.values(remoteAudios.current).forEach(a => { a.srcObject = null; });
+    Object.values(remoteAudios.current).forEach(a => { try { a.pause(); a.srcObject = null; } catch {} });
     remoteAudios.current = {};
 
     // Stop mic
-    localStream.current?.getTracks().forEach(t => t.stop());
+    localStream.current?.getTracks().forEach(t => { try { t.stop(); } catch {} });
     localStream.current = null;
 
-    // Unsubscribe Firestore
-    unsubscribers.current.forEach(fn => fn());
-    unsubscribers.current = [];
+    // Unsubscribe
+    unsubs.current.forEach(fn => { try { fn(); } catch {} });
+    unsubs.current = [];
 
-    await fetch('/api/meeting/leave', {
+    // Mark leave
+    fetch('/api/meeting/leave', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: userName }),
-    });
+    }).catch(() => {});
 
     setPeers([]);
+    setTranscript('');
+    setAgentReply('');
+    setAgentStatus('Waiting…');
+    setAgentSpeaking(false);
     setInCall(false);
-    window.removeEventListener('beforeunload', leaveCall);
   }
 
-  // ── Mute toggle ────────────────────────────────────────────────────────────
+  // Cleanup on unmount
+  useEffect(() => () => { if (inCall) leaveCall(); }, []);
 
+  // ── Mute ──────────────────────────────────────────────────────────────────
   function toggleMute() {
     localStream.current?.getAudioTracks().forEach(t => { t.enabled = muted; });
     setMuted(m => !m);
   }
 
-  // ── Agent speaks (Sarvam TTS) ───────────────────────────────────────────────
-
-  async function agentSpeak(text: string) {
-    setAgentSpeaking(true);
-    setAgentStatus('Speaking…');
-    try {
-      const res  = await fetch('/api/sarvam/tts', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      const audio = playBase64Wav(data.audio);
-      if (audio) {
-        audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); };
-      } else {
-        setAgentSpeaking(false);
-        setAgentStatus('Listening…');
-      }
-    } catch {
-      setAgentSpeaking(false);
-      setAgentStatus('Listening…');
-    }
-  }
-
-  // ── Push-to-talk: user speaks to agent ─────────────────────────────────────
-
+  // ── Push-to-talk → Sarvam STT → AI → TTS ─────────────────────────────────
   function startRecording() {
-    if (!localStream.current || recording) return;
+    if (!localStream.current || recording || agentSpeaking) return;
     audioChunks.current = [];
-    const mr = new MediaRecorder(localStream.current, { mimeType: 'audio/webm' });
-    mediaRecorder.current = mr;
-    mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
-    mr.start(200);
-    setRecording(true);
-    setTranscript('');
-    setAgentReply('');
+    try {
+      const mr = new MediaRecorder(localStream.current, { mimeType: 'audio/webm' });
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
+      mr.start(200);
+      mediaRec.current = mr;
+      setRecording(true);
+      setTranscript('');
+      setAgentReply('');
+    } catch {}
   }
 
   async function stopRecording() {
-    if (!mediaRecorder.current || !recording) return;
+    if (!recording || !mediaRec.current) return;
     setRecording(false);
-    mediaRecorder.current.stop();
 
-    await new Promise<void>(res => { if (mediaRecorder.current) mediaRecorder.current.onstop = () => res(); });
+    await new Promise<void>(res => {
+      if (mediaRec.current) { mediaRec.current.onstop = () => res(); mediaRec.current.stop(); }
+      else res();
+    });
 
     const blob = new Blob(audioChunks.current, { type: 'audio/webm' });
-    if (blob.size < 1000) return; // too short, ignore
+    if (blob.size < 500) return;
 
-    setAgentStatus('Processing…');
     setAgentSpeaking(true);
+    setAgentStatus('Processing…');
 
     const form = new FormData();
     form.append('audio', blob, 'audio.webm');
@@ -315,38 +332,34 @@ export default function VoiceRoom() {
     try {
       const res  = await fetch('/api/sarvam/speak', { method: 'POST', body: form });
       const data = await res.json();
-
       if (data.transcript) setTranscript(data.transcript);
       if (data.reply)      setAgentReply(data.reply);
-      if (data.audio)      {
+      if (data.audio) {
         const audio = playBase64Wav(data.audio);
         if (audio) {
-          audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); };
+          audio.onended = () => { setAgentSpeaking(false); setAgentStatus('Listening…'); pollMeeting(); };
           return;
         }
       }
-    } catch (e) {
-      console.error('Speak error:', e);
-    }
+    } catch (e) { console.error('Speak error:', e); }
+
     setAgentSpeaking(false);
     setAgentStatus('Listening…');
     pollMeeting();
   }
 
-  // ── Start / End standup ────────────────────────────────────────────────────
-
+  // ── Standup controls ──────────────────────────────────────────────────────
   async function startStandup() {
     setStarting(true);
     await fetch('/api/agent/trigger', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'standup' }),
-    });
+    }).catch(() => {});
     for (let i = 0; i < 8; i++) {
       await new Promise(r => setTimeout(r, 2000));
-      await pollMeeting();
-      const res = await fetch('/api/meeting/status');
-      const d = await res.json();
-      if (d.active) break;
+      const res  = await fetch('/api/meeting/status');
+      const data = await res.json();
+      if (data.active) { setMeetingActive(true); break; }
     }
     setStarting(false);
   }
@@ -355,13 +368,12 @@ export default function VoiceRoom() {
     await fetch('/api/agent/trigger', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'end' }),
-    });
-    agentSpeak("Standup is now complete. Great work team! I'll send everyone their task summaries shortly.");
-    pollMeeting();
+    }).catch(() => {});
+    agentSpeak('Standup is complete. Great work everyone! I will send task summaries shortly.');
+    setTimeout(pollMeeting, 3000);
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className={styles.room}>
 
@@ -371,85 +383,106 @@ export default function VoiceRoom() {
           <span className={styles.roomIcon}>📞</span>
           <div>
             <div className={styles.title}>Aronlabz Standup Room</div>
-            <div className={styles.subtitle}>Daily standup · Mon–Sat 10:00 AM IST · Agent-powered</div>
+            <div className={styles.subtitle}>Daily standup · Mon–Sat 10:00 AM IST</div>
           </div>
         </div>
-        <div className={styles.headerRight}>
-          <span className={`${styles.statusPill} ${meetingActive ? styles.active : styles.idle}`}>
-            {meetingActive ? '● Meeting Active' : '○ No Active Meeting'}
-          </span>
-          {isAdmin && !meetingActive && (
-            <button className={styles.btnStart} onClick={startStandup} disabled={starting}>
-              {starting ? '⏳ Starting…' : '▶ Start Standup'}
-            </button>
-          )}
-          {isAdmin && meetingActive && (
-            <button className={styles.btnEndTop} onClick={endMeeting}>■ End Meeting</button>
-          )}
-        </div>
+        <span className={`${styles.statusPill} ${meetingActive ? styles.pillActive : styles.pillIdle}`}>
+          {meetingActive ? '● Active' : '○ Idle'}
+        </span>
       </div>
 
       <div className={styles.body}>
 
-        {/* Participants */}
-        <div className={styles.participants}>
+        {/* Participants column */}
+        <div className={styles.leftCol}>
 
           {/* Agent card */}
-          <div className={`${styles.participantCard} ${styles.agentCard} glass`}>
-            <div className={`${styles.avatarRing} ${agentSpeaking ? styles.speaking : ''}`}>
-              <div className={styles.avatar} style={{ background: 'linear-gradient(135deg,#06b6d4,#6366f1)' }}>🤖</div>
+          <div className={`${styles.card} ${styles.agentCard} glass`}>
+            <div className={`${styles.avatarRing} ${agentSpeaking ? styles.ringSpeaking : ''}`}>
+              <div className={`${styles.avatar} ${styles.agentAvatar}`}>🤖</div>
             </div>
-            <div className={styles.pName}>AI Chief of Staff</div>
-            <div className={styles.pStatus}>{inCall ? agentStatus : 'Waiting…'}</div>
-            {agentSpeaking && <div className={styles.soundWave}><span/><span/><span/><span/><span/></div>}
+            <div className={styles.cardName}>AI Chief of Staff</div>
+            <div className={styles.cardStatus}>{inCall ? agentStatus : '—'}</div>
+            {agentSpeaking && (
+              <div className={styles.wave}>
+                <span/><span/><span/><span/><span/>
+              </div>
+            )}
           </div>
 
-          {/* Self card */}
+          {/* Self card (only when in call) */}
           {inCall && (
-            <div className={`${styles.participantCard} ${styles.selfCard} glass`}>
-              <div className={`${styles.avatarRing} ${recording ? styles.speaking : ''}`}>
+            <div className={`${styles.card} ${styles.selfCard} glass`}>
+              <div className={`${styles.avatarRing} ${recording ? styles.ringSpeaking : ''}`}>
                 <div className={styles.avatar}>{userName[0]?.toUpperCase()}</div>
               </div>
-              <div className={styles.pName}>{userName} (you)</div>
-              <div className={styles.pStatus}>{muted ? '🔇 Muted' : recording ? '🔴 Speaking to agent' : '🎙 Live'}</div>
+              <div className={styles.cardName}>{userName}</div>
+              <div className={styles.cardStatus}>
+                {muted ? '🔇 Muted' : recording ? '🔴 Recording' : '🎙 Live'}
+              </div>
             </div>
           )}
 
           {/* Remote peers */}
           {peers.map(p => (
-            <div key={p.id} className={`${styles.participantCard} glass`}>
+            <div key={p.id} className={`${styles.card} glass`}>
               <div className={styles.avatarRing}>
                 <div className={styles.avatar}>{p.name[0]?.toUpperCase()}</div>
               </div>
-              <div className={styles.pName}>{p.name}</div>
-              <div className={styles.pStatus}>🎙 In call</div>
+              <div className={styles.cardName}>{p.name}</div>
+              <div className={styles.cardStatus}>🎙 In call</div>
             </div>
           ))}
 
+          {/* Standup controls (admin) */}
+          {isAdmin && (
+            <div className={`${styles.standupCtrl} glass`}>
+              <div className={styles.ctrlLabel}>Admin Controls</div>
+              {!meetingActive ? (
+                <button className={styles.btnStartMeeting} onClick={startStandup} disabled={starting}>
+                  {starting ? '⏳ Starting…' : '▶ Start Standup'}
+                </button>
+              ) : (
+                <button className={styles.btnEndMeeting} onClick={endMeeting}>■ End Meeting</button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Right: notes + controls */}
-        <div className={styles.rightPanel}>
+        {/* Right column */}
+        <div className={styles.rightCol}>
 
-          {/* Transcript / reply */}
+          {/* Transcript / agent reply */}
           {(transcript || agentReply) && (
             <div className={`${styles.transcriptBox} glass`}>
-              {transcript && <div className={styles.transcriptLine}><span className={styles.tLabel}>You said:</span> {transcript}</div>}
-              {agentReply  && <div className={styles.transcriptLine}><span className={styles.aLabel}>🤖 Agent:</span> {agentReply}</div>}
+              {transcript && (
+                <div className={styles.tLine}>
+                  <span className={styles.tYou}>You said:</span> {transcript}
+                </div>
+              )}
+              {agentReply && (
+                <div className={styles.tLine}>
+                  <span className={styles.tAgent}>🤖 Agent:</span> {agentReply}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Meeting notes */}
-          <div className={`${styles.notesPanel} glass`}>
+          {/* Notes feed */}
+          <div className={`${styles.notesPanelWrap} glass`}>
             <div className={styles.notesTitle}>📝 Meeting Notes</div>
             <div className={styles.notesFeed}>
               {notes.length ? notes.map((n, i) => (
-                <div key={i} className={`${styles.note} ${n.speaker === 'AI Chief of Staff' ? styles.agentNote : styles.userNote}`}>
-                  <span className={styles.noteSpeaker}>{n.speaker === 'AI Chief of Staff' ? '🤖' : '👤'} {n.speaker}</span>
-                  <span className={styles.noteTime}>{n.time}</span>
+                <div key={i} className={`${styles.note} ${n.speaker === 'AI Chief of Staff' ? styles.noteAgent : styles.noteUser}`}>
+                  <div className={styles.noteMeta}>
+                    <span>{n.speaker === 'AI Chief of Staff' ? '🤖' : '👤'} {n.speaker}</span>
+                    <span className={styles.noteTime}>{n.time}</span>
+                  </div>
                   <div className={styles.noteText}>{n.content}</div>
                 </div>
-              )) : <div className={styles.empty}>Notes appear here during standup</div>}
+              )) : (
+                <div className={styles.emptyNotes}>Notes appear here during standup</div>
+              )}
               <div ref={notesEndRef} />
             </div>
           </div>
@@ -464,21 +497,26 @@ export default function VoiceRoom() {
               <>
                 <button
                   className={`${styles.btnTalk} ${recording ? styles.btnTalkActive : ''}`}
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  onTouchStart={startRecording}
-                  onTouchEnd={stopRecording}
+                  onPointerDown={startRecording}
+                  onPointerUp={stopRecording}
+                  onPointerLeave={stopRecording}
                   disabled={agentSpeaking}
                 >
-                  {recording ? '🔴 Release to send' : '🎤 Hold to talk to Agent'}
+                  {recording ? '🔴 Release to send' : '🎤 Hold — Talk to Agent'}
                 </button>
-                <button className={`${styles.btnMute} ${muted ? styles.btnMuted : ''}`} onClick={toggleMute}>
+                <button
+                  className={`${styles.btnMute} ${muted ? styles.btnMuted : ''}`}
+                  onClick={toggleMute}
+                >
                   {muted ? '🔇 Unmute' : '🔊 Mute'}
                 </button>
                 <button className={styles.btnLeave} onClick={leaveCall}>
                   📵 Leave
                 </button>
               </>
+            )}
+            {ringing && (
+              <span className={styles.ringingBadge}>📳 Ringing…</span>
             )}
           </div>
 
