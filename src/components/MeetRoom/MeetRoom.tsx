@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import DailyIframe from '@daily-co/daily-js';
 import styles from './MeetRoom.module.css';
 
@@ -11,6 +12,9 @@ interface MeetRoomProps {
 
 export default function MeetRoom({ roomName, userName }: MeetRoomProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
+  const isJoining = searchParams.get('action') === 'join';
+  
   const [active, setActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -86,34 +90,35 @@ export default function MeetRoom({ roomName, userName }: MeetRoomProps) {
     };
   }, [active, roomName, userName]);
 
-  // START STANDUP & AGENT LISTENING
-  const startStandUp = async () => {
+  // START OR JOIN STANDUP
+  const handleAction = async () => {
     setActive(true);
     setLoading(true);
 
-    // Ring all connected phones
-    try {
-      await fetch('/api/push/ring', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: '📢 Standup Starting Now!',
-          body: 'Tap to join the team video standup.'
-        })
-      });
-    } catch (e) {
-      console.error("Failed to push ring notification", e);
+    if (!isJoining) {
+      // Initiator triggers the ring for everyone
+      try {
+        await fetch('/api/push/ring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: '📢 Standup Starting Now!',
+            body: `Join the team video standup with ${userName}.`
+          })
+        });
+      } catch (e) {
+        console.error("Failed to push ring notification", e);
+      }
     }
 
-    // Start listening on client side
     startAgentListen();
   };
 
   const startAgentListen = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn("Speech API not supported in this browser.");
-      setNotes('Speech recognition not supported in this browser. Please use Chrome/Edge.');
+      console.warn("Speech API not supported.");
+      setNotes('Speech recognition not supported in this browser.');
       return;
     }
 
@@ -159,9 +164,7 @@ export default function MeetRoom({ roomName, userName }: MeetRoomProps) {
          body: JSON.stringify({ transcript })
       });
       const data = await res.json();
-      if (data.notes) {
-        setNotes(data.notes);
-      }
+      if (data.notes) setNotes(data.notes);
     } catch (e) {
        console.error(e);
        setNotes('Failed to extract notes.');
@@ -173,16 +176,20 @@ export default function MeetRoom({ roomName, userName }: MeetRoomProps) {
       <div className={`${styles.joinPanelWrapper} glass`}>
         <div className={styles.joinPanel}>
           <div className={styles.info}>
-            <span className={styles.icon}>🤖</span>
-            <h3>Daily Standup Hub</h3>
-            <p>Start the meeting. The AI Agent will listen, ring the <br/>team, and pull tasks automatically into your column.</p>
+            <span className={styles.icon}>{isJoining ? '📞' : '🤖'}</span>
+            <h3>{isJoining ? 'Join Standup' : 'Daily Standup Hub'}</h3>
+            <p>
+              {isJoining 
+                 ? 'A team member has initiated the standup. Jump in.' 
+                 : 'Start the meeting. The AI Agent will listen, ring the team, and pull tasks automatically.'}
+            </p>
           </div>
           <button 
             className={styles.btnStandUp} 
-            onClick={startStandUp}
+            onClick={handleAction}
             disabled={loading}
           >
-            {loading ? 'Booting Agent...' : '🚀 Start Stand Up'}
+            {loading ? 'Booting Agent...' : (isJoining ? '✅ Join Stand Up' : '🚀 Start Stand Up')}
           </button>
           {error && <p style={{ color: '#ff6b6b', marginTop: '10px' }}>{error}</p>}
         </div>

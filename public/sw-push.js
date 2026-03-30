@@ -11,10 +11,11 @@ self.addEventListener('push', function (event) {
     renotify: true,
     requireInteraction: true,
     data: { url: data.url || '/dashboard' },
+    sound: data.sound || '/ring.mp3',
     vibrate: [500, 110, 500, 110, 450, 110, 200, 110, 170, 40, 450, 110, 200, 110, 170, 40, 500],
-    actions: [
-      { action: 'accept', title: '✅ Accept', icon: '/accept.svg' },
-      { action: 'decline', title: '❌ Decline', icon: '/decline.svg' },
+    actions: data.actions || [
+      { action: 'join', title: '✅ Join' },
+      { action: 'dismiss', title: '❌ Dismiss' }
     ],
   };
 
@@ -26,7 +27,7 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
-  if (event.action === 'decline') return;
+  if (event.action === 'dismiss' || event.action === 'decline') return;
 
   const url = event.notification.data?.url || '/dashboard';
   event.waitUntil(

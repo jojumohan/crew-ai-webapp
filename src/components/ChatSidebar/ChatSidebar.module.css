@@ -140,13 +140,65 @@
   padding: 0.5rem 0;
 }
 
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1rem 0.5rem;
+}
+
 .sectionTitle {
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: rgba(255, 255, 255, 0.4);
-  padding: 1rem 1rem 0.5rem;
+}
+
+.btnAdd {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+.btnAdd:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.addChannelForm {
+  padding: 4px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.hash {
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: bold;
+}
+
+.addChannelForm input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  outline: none;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+.addChannelForm input:focus {
+  border-color: var(--primary);
 }
 
 .item {
@@ -301,4 +353,13 @@
 
 @media (max-width: 768px) {
   .container { width: 100%; }
+}
+
+@media (max-width: 768px) {
+  .container {
+    width: 100%;
+    flex: 1;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
 }

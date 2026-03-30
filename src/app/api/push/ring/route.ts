@@ -31,14 +31,17 @@ export async function POST(req: NextRequest) {
     const payload = JSON.stringify({
       title: title || (targetUserId ? `📞 Direct call from ${callerName}` : `📞 Incoming call from ${callerName}`),
       body: body || (targetUserId ? 'Incoming contact — Tap to accept' : 'Tap to open Aronlabz Teams'),
-
       icon: '/icon.svg',
       badge: '/icon.svg',
       tag: 'aronlabz-ring',
       renotify: true,
       requireInteraction: true,
       sound: '/ring.mp3',
-      url: '/dashboard',
+      url: '/dashboard?action=join',
+      actions: [
+        { action: 'join', title: '✅ Join' },
+        { action: 'dismiss', title: '❌ Dismiss' }
+      ]
     });
 
     const results = await Promise.allSettled(

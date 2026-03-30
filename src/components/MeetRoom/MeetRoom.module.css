@@ -163,3 +163,32 @@
   transform: none;
   cursor: not-allowed;
 }
+
+@media (max-width: 768px) {
+  .meetContainer {
+    flex-direction: column;
+  }
+  
+  .mainPanel {
+    flex: 2;
+  }
+  
+  .notesPanel {
+    flex: 1;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  .joinPanel {
+    padding: 2rem 1rem;
+    width: 90%;
+  }
+
+  .info .icon {
+    font-size: 3rem;
+  }
+  
+  .info h3 {
+    font-size: 1.4rem;
+  }
+}

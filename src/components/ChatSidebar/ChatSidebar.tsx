@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase-client';
-import { collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { useSession } from 'next-auth/react';
 import { ChatTarget } from '@/lib/types/chat';
 import styles from './ChatSidebar.module.css';
 
@@ -13,14 +14,19 @@ interface ChatSidebarProps {
 }
 
 export default function ChatSidebar({ onSelect, activeId, onLoaded }: ChatSidebarProps) {
+  const { data: session } = useSession();
   const [targets, setTargets] = useState<ChatTarget[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'unread' | 'mentions' | 'channels'>('all');
   
-  // Custom folder state (Mocked until Phase 3 backend connection)
+  // Custom folder state
   const [folders, setFolders] = useState([
-    { id: 'f1', name: 'Project X', items: [] as string[] }
+    { id: 'f1', name: 'Starred', items: [] as string[] }
   ]);
+  
+  // Adding Channels
+  const [isAddingChannel, setIsAddingChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
 
   useEffect(() => {
     async function fetchData() {
@@ -72,11 +78,43 @@ export default function ChatSidebar({ onSelect, activeId, onLoaded }: ChatSideba
     }));
   };
 
+  const handleCreateChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChannelName.trim()) return;
+
+    try {
+      const docRef = await addDoc(collection(db, 'channels'), {
+        name: newChannelName.trim(),
+        type: 'public',
+        created_by: session?.user?.id || 'unknown',
+        created_at: serverTimestamp(),
+        members: []
+      });
+
+      const newChan: ChatTarget = {
+        id: docRef.id,
+        name: newChannelName.trim(),
+        type: 'public',
+        created_by: session?.user?.id || 'unknown',
+        created_at: new Date(),
+        members: [],
+        isChannel: true
+      };
+
+      setTargets(prev => [newChan, ...prev]);
+      setNewChannelName('');
+      setIsAddingChannel(false);
+      onSelect(newChan);
+    } catch (err) {
+      console.error("Error creating channel:", err);
+    }
+  };
+
   const filteredTargets = targets.filter(t => {
     if (filter === 'channels') return t.isChannel;
     // Mocking logic for unreads/mentions for layout purposes
-    if (filter === 'unread') return t.id.length % 2 === 0; // Fake filter
-    if (filter === 'mentions') return t.id.length % 3 === 0; // Fake filter
+    if (filter === 'unread') return t.id.length % 2 === 0;
+    if (filter === 'mentions') return t.id.length % 3 === 0;
     return true;
   });
 
@@ -140,7 +178,24 @@ export default function ChatSidebar({ onSelect, activeId, onLoaded }: ChatSideba
           </div>
         ))}
 
-        <div className={styles.sectionTitle}>Conversations</div>
+        <div className={styles.sectionHeader}>
+          <div className={styles.sectionTitle}>Conversations</div>
+          <button className={styles.btnAdd} onClick={() => setIsAddingChannel(!isAddingChannel)}>+</button>
+        </div>
+
+        {isAddingChannel && (
+          <form className={styles.addChannelForm} onSubmit={handleCreateChannel}>
+             <span className={styles.hash}>#</span>
+             <input 
+               autoFocus
+               type="text" 
+               placeholder="new-channel" 
+               value={newChannelName}
+               onChange={e => setNewChannelName(e.target.value)}
+             />
+          </form>
+        )}
+
         {filteredTargets.map((u) => {
            // Skip if it's currently inside a folder
            if (folders.some(f => f.items.includes(u.id))) return null;
