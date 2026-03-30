@@ -9,6 +9,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Daily.co API key not found in environment." }, { status: 500 });
     }
 
+    // Sanitize roomName for Daily.co (only lowercase letters, numbers, and hyphens allowed)
+    const validRoomName = roomName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || `room-${Math.floor(Math.random() * 100000)}`;
+
     // 1. Try to create the room
     const res = await fetch(`https://api.daily.co/v1/rooms`, {
       method: 'POST',
@@ -17,7 +20,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        name: roomName,
+        name: validRoomName,
         privacy: 'public',
         properties: { exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) }, // Room expires in 24 hours
       }),
