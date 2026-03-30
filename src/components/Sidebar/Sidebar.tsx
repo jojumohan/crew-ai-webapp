@@ -6,29 +6,26 @@ import { signOut } from 'next-auth/react';
 import styles from './Sidebar.module.css';
 
 const NAV = [
-  { href: '/dashboard',          label: 'Overview', icon: '🏠' },
-  { href: '/dashboard/tasks',    label: 'Tasks',    icon: '✅' },
-  { href: '/dashboard/agents',   label: 'Agents',   icon: '🤖' },
-  { href: '/dashboard/chat',     label: 'Chat',     icon: '💬' },
+  { href: '/dashboard', label: 'Overview', icon: '🏠' },
+  { href: '/dashboard/tasks', label: 'Tasks', icon: '✅' },
+  { href: '/dashboard/agents', label: 'Agents', icon: '🤖' },
+  { href: '/dashboard/chat', label: 'Chat', icon: '💬' },
   { href: '/dashboard/calendar', label: 'Calendar', icon: '📅' },
-  { href: '/dashboard/team',     label: 'Team',     icon: '👥' },
-  { href: '/dashboard/files',    label: 'Files',    icon: '📁' },
+  { href: '/dashboard/team', label: 'Workspace', icon: '👥' },
+  { href: '/dashboard/files', label: 'Files', icon: '📁' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
-    href === '/dashboard'
-      ? pathname === href
-      : pathname.startsWith(href);
+    href === '/dashboard' ? pathname === href : pathname.startsWith(href);
 
   return (
     <>
-      {/* Desktop sidebar */}
       <aside className={styles.sidebar + ' glass'}>
         <div className={styles.logo}>
-          <span className={styles.logoIcon}>⚡️</span>
+          <span className={styles.logoIcon}>⚡</span>
           <span className={styles.logoText}>Aronlabz Teams</span>
         </div>
 
@@ -45,16 +42,12 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        <button
-          className={styles.signOut}
-          onClick={() => signOut({ callbackUrl: '/login' })}
-        >
+        <button className={styles.signOut} onClick={() => signOut({ callbackUrl: '/login' })}>
           <span className={styles.icon}>🚪</span>
           <span>Sign Out</span>
         </button>
       </aside>
 
-      {/* Mobile bottom nav */}
       <nav className={styles.bottomNav}>
         {NAV.map(({ href, label, icon }) => (
           <Link
@@ -66,10 +59,7 @@ export default function Sidebar() {
             <span>{label}</span>
           </Link>
         ))}
-        <button
-          className={styles.bottomSignOut}
-          onClick={() => signOut({ callbackUrl: '/login' })}
-        >
+        <button className={styles.bottomSignOut} onClick={() => signOut({ callbackUrl: '/login' })}>
           <span className={styles.bottomNavIcon}>🚪</span>
           <span>Out</span>
         </button>
