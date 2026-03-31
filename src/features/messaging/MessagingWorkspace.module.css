@@ -1451,12 +1451,12 @@
     width: 100%;
   }
 
-  /* When a chat is active, hide sidebar and show chat */
-  .hasActiveChat .sidebar {
+  /* When workspace has an active chat selection */
+  .workspace.activeChat .sidebar {
     display: none;
   }
 
-  .hasActiveChat .chatShell {
+  .workspace.activeChat .chatShell {
     display: flex;
   }
 
@@ -1497,14 +1497,6 @@
     max-width: 90%;
   }
 
-  /* When a chat is active, hide sidebar and show chat */
-  .workspace.hasActiveChat .sidebar {
-    display: none;
-  }
-
-  .workspace.hasActiveChat .chatShell {
-    display: flex;
-  }
 
   /* Info panel adjustment for mobile */
   .infoPanel {

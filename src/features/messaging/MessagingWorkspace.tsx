@@ -1126,7 +1126,7 @@ export default function MessagingWorkspace({
         </div>
       )}
 
-      <div className={`${styles.workspace} ${selectedConversationId ? styles.hasActiveChat : ''}`}>
+      <div className={`${styles.workspace} ${selectedConversationId ? styles.activeChat : ''}`}>
         <aside className={styles.sidebar}>
           <header className={styles.sidebarHeader}>
             <div className={styles.viewerAvatar}>{snapshot.viewer.avatarLabel}</div>
@@ -1272,6 +1272,9 @@ export default function MessagingWorkspace({
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedConversationId(null);
+                    setSearch('');
+                    setIsSearchingInChat(false);
+                    setChatSearchQuery('');
                   }}
                   title="Back to list"
                 >
