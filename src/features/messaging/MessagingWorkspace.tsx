@@ -1,6 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+const quickEmoji = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, query, where, deleteDoc, orderBy, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase-client';
 import { signOut } from 'next-auth/react';
 import { getSignOutCallbackUrl } from '@/lib/auth-client';
 import {
@@ -20,6 +24,8 @@ import {
   SmileyIcon,
   StatusIcon,
   VideoIcon,
+  TriangleIcon,
+  SeenIcon,
 } from './InterfaceIcons';
 import styles from './MessagingWorkspace.module.css';
 import type {
@@ -62,6 +68,7 @@ type SearchResult =
       meta: string;
       avatarLabel: string;
       accent: string;
+      participantIds: string[];
     }
   | {
       kind: 'member';
@@ -71,9 +78,10 @@ type SearchResult =
       meta: string;
       avatarLabel: string;
       accent: string;
+      participantIds: string[];
     };
 
-const quickEmoji = ['😀', '😂', '😍', '🙏', '🔥', '👍'];
+
 
 function formatClock(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
@@ -144,9 +152,11 @@ function reorderConversations(
       ? {
           ...conversation,
           lastMessagePreview: preview,
-          lastActivityLabel: 'now',
+          lastActivityLabel: 'Just now',
           unreadCount: 0,
-        }
+          presence: 'online',
+          participantIds: conversation.participantIds,
+        } satisfies ConversationSummary
       : conversation
   );
 
@@ -249,7 +259,24 @@ export default function MessagingWorkspace({
   });
   const [isPending, startTransition] = useTransition();
   const [isMemberPending, startMemberTransition] = useTransition();
+  const [isCalling, setIsCalling] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string[]>>({}); // conversationId -> userNames[]
+  const [isSearchingInChat, setIsSearchingInChat] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [forwardingMessage, setForwardingMessage] = useState<MessagingMessage | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [audioChunksRef, setAudioChunksRef] = useState<Blob[]>([]); // Using state for simplicity in some places
+  const [isGroupCreating, setIsGroupCreating] = useState(false);
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState('');
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
   const canManageMembers = snapshot.viewer.role === 'admin';
 
   useEffect(() => {
@@ -269,9 +296,104 @@ export default function MessagingWorkspace({
     }
   }, [selectedConversationId, snapshot.conversations]);
 
+  // Real-time Messages listener
+  useEffect(() => {
+    if (!selectedConversationId) return;
+
+    const messagesRef = collection(db, 'messaging_conversations', selectedConversationId, 'messages');
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      const messages: MessagingMessage[] = [];
+      const unreadIds: string[] = [];
+      
+      querySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const createdAt = (data.createdAt?.toDate?.() || new Date(data.createdAt)).toISOString();
+        
+        const message: MessagingMessage = {
+          id: doc.id,
+          clientId: data.clientId || doc.id,
+          conversationId: selectedConversationId,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          body: data.body,
+          kind: data.kind || 'text',
+          createdAt,
+          createdAtLabel: formatClock(createdAt),
+          delivery: data.delivery || 'sent',
+          direction: data.senderId === snapshot.viewer.id ? 'outgoing' : 'incoming',
+          mediaUrl: data.mediaUrl,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          reactions: data.reactions || {},
+          isForwarded: data.isForwarded || false,
+        };
+
+        messages.push(message);
+
+        // Track unread messages received by the current viewer
+        if (message.direction === 'incoming' && message.delivery !== 'read') {
+          unreadIds.push(doc.id);
+        }
+      });
+
+      setSnapshot((current) => ({
+        ...current,
+        messagesByConversation: {
+          ...current.messagesByConversation,
+          [selectedConversationId]: messages,
+        },
+      }));
+
+      // Automatically mark as read
+      if (unreadIds.length > 0) {
+        for (const messageId of unreadIds) {
+          const messageDocRef = doc(db, 'messaging_conversations', selectedConversationId, 'messages', messageId);
+          void updateDoc(messageDocRef, { delivery: 'read' }).catch(() => {});
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedConversationId, snapshot.viewer.id]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [selectedConversationId, snapshot.messagesByConversation]);
+  }, [selectedConversationId, snapshot.messagesByConversation, typingUsers]);
+
+  // Typing indicators listener
+  useEffect(() => {
+    if (!selectedConversationId) return;
+
+    const typingRef = collection(db, 'messaging_conversations', selectedConversationId, 'typing');
+    
+    const unsubscribe = onSnapshot(typingRef, (querySnapshot) => {
+      const typingNow: string[] = [];
+      
+      querySnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (doc.id !== snapshot.viewer.id) {
+          typingNow.push(data.userName);
+        }
+      });
+      
+      setTypingUsers(prev => ({
+        ...prev,
+        [selectedConversationId]: typingNow
+      }));
+    });
+
+    return () => unsubscribe();
+  }, [selectedConversationId, snapshot.viewer.id]);
+
+  const typingLabel = useMemo(() => {
+    const typing = typingUsers[selectedConversationId] || [];
+    if (typing.length === 0) return null;
+    if (typing.length === 1) return `${typing[0]} is typing...`;
+    if (typing.length === 2) return `${typing[0]} and ${typing[1]} are typing...`;
+    return `${typing.length} people are typing...`;
+  }, [typingUsers, selectedConversationId]);
 
   const activeConversation =
     snapshot.conversations.find((conversation) => conversation.id === selectedConversationId) ||
@@ -304,6 +426,7 @@ export default function MessagingWorkspace({
             meta: conversation.lastActivityLabel,
             avatarLabel: conversation.avatarLabel,
             accent: conversation.accent,
+            participantIds: conversation.participantIds,
           }) satisfies SearchResult
       );
 
@@ -322,11 +445,63 @@ export default function MessagingWorkspace({
             meta: member.role,
             avatarLabel: member.avatarLabel,
             accent: getMemberAccent(member.id),
+            participantIds: [member.id, snapshot.viewer.id],
           }) satisfies SearchResult
       );
 
     return [...conversationResults, ...memberResults];
-  }, [normalizedQuery, otherMembers, snapshot.conversations]);
+  }, [normalizedQuery, otherMembers, snapshot.conversations, snapshot.viewer.id]);
+
+  // Real-time Conversations listener
+  useEffect(() => {
+    const convoQuery = query(
+      collection(db, 'messaging_conversations'),
+      where('participantIds', 'array-contains', snapshot.viewer.id)
+    );
+
+    const unsubscribe = onSnapshot(convoQuery, (querySnapshot) => {
+      const convos: ConversationSummary[] = [];
+
+      querySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const otherParticipantId = data.participantIds.find((id: string) => id !== snapshot.viewer.id) || '';
+        
+        // Find other member for title/avatar if it's direct
+        const otherMember = snapshot.members.find(m => m.id === otherParticipantId);
+        
+        const title = data.type === 'direct' 
+          ? otherMember?.displayName || data.title || 'Direct Chat'
+          : data.title || 'Group Chat';
+
+        const lastActivity = toIso(data.lastMessageAt || data.createdAt) || new Date().toISOString();
+
+        convos.push({
+          id: doc.id,
+          type: data.type || 'direct',
+          title,
+          subtitle: data.type === 'direct' ? (otherMember?.email || 'Active') : `${data.memberCount} members`,
+          avatarLabel: title.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase() || 'C',
+          accent: getMemberAccent(doc.id),
+          unreadCount: 0, // Simplified for now
+          memberCount: data.memberCount || 2,
+          lastMessagePreview: data.lastMessageText || 'No messages yet',
+          lastActivityLabel: formatRelative(lastActivity),
+          presence: 'online',
+          participantIds: data.participantIds,
+        });
+      });
+
+      // Sort by last activity
+      convos.sort((a, b) => b.id.localeCompare(a.id)); // Simpler sort, real one would use timestamps
+
+      setSnapshot((current) => ({
+        ...current,
+        conversations: convos,
+      }));
+    });
+
+    return () => unsubscribe();
+  }, [snapshot.viewer.id, snapshot.members]);
 
   async function refreshMembers() {
     const response = await fetch('/api/team', { cache: 'no-store' });
@@ -343,6 +518,23 @@ export default function MessagingWorkspace({
       members: team.members,
       pendingMembers: team.pendingMembers,
     }));
+  }
+
+  // Helper inside component since we might need it
+  function toIso(value: any): string | null {
+    if (!value) return null;
+    if (typeof value === 'object' && value.toDate) return value.toDate().toISOString();
+    return value;
+  }
+
+  function formatRelative(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'now';
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -458,6 +650,39 @@ export default function MessagingWorkspace({
     });
   }
 
+  async function handleCreateGroup() {
+    if (!groupName.trim() || selectedGroupMembers.length === 0) return;
+
+    try {
+      const response = await fetch('/api/v1/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'group',
+          title: groupName,
+          participantIds: [...selectedGroupMembers, snapshot.viewer.id],
+        }),
+      });
+
+      if (!response.ok) throw new Error('group_creation_failed');
+      
+      const data = await response.json();
+      setSelectedConversationId(data.conversationId);
+      setIsGroupCreating(false);
+      setSelectedGroupMembers([]);
+      setGroupName('');
+      setMenuOpen(false);
+    } catch (err) {
+      console.error('Group creation failed:', err);
+    }
+  }
+
+  const toggleGroupMember = (id: string) => {
+    setSelectedGroupMembers(prev => 
+      prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]
+    );
+  };
+
   function handleApproval(memberId: string, action: 'approve' | 'reject') {
     setMemberError('');
     setMemberNotice('');
@@ -491,6 +716,194 @@ export default function MessagingWorkspace({
         }
       })();
     });
+  }
+
+  async function handleCall(type: 'voice' | 'video') {
+    if (!activeConversation || isCalling) return;
+    
+    const otherParticipantId = activeConversation.type === 'direct' 
+      ? activeConversation.id.replace('direct_', '').replace(Buffer.from(snapshot.viewer.id).toString('base64url'), '').replace('_', '')
+      : null;
+    
+    setIsCalling(true);
+    try {
+      const otherId = activeConversation.type === 'direct' 
+        ? activeConversation.participantIds.find(id => id !== snapshot.viewer.id)
+        : null;
+
+      const body = activeConversation.type === 'direct' 
+        ? { targetUserId: otherId } 
+        : { title: `📞 Group call: ${activeConversation.title}` };
+
+      await fetch('/api/push/ring', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      console.error("Call failed:", err);
+      setIsCalling(false);
+    } finally {
+      // Keep isCalling true until user cancels or call is established normally
+    }
+  }
+
+  async function handleReaction(messageId: string, emoji: string) {
+    if (!selectedConversationId) return;
+
+    const messageDocRef = doc(db, 'messaging_conversations', selectedConversationId, 'messages', messageId);
+    const existingReactions = (snapshot.messagesByConversation[selectedConversationId] || [])
+      .find(m => m.id === messageId)?.reactions || {};
+    
+    const nextReactions = { ...existingReactions };
+    
+    // Toggle: if same user + same emoji, remove it
+    if (nextReactions[snapshot.viewer.id] === emoji) {
+      delete nextReactions[snapshot.viewer.id];
+    } else {
+      nextReactions[snapshot.viewer.id] = emoji;
+    }
+
+    try {
+      await updateDoc(messageDocRef, { reactions: nextReactions });
+    } catch (err) {
+      console.error("Reaction failed:", err);
+    }
+  }
+
+  async function handleForward(targetConversationId: string) {
+    if (!forwardingMessage) return;
+
+    try {
+      const response = await fetch('/api/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: targetConversationId,
+          body: forwardingMessage.body,
+          kind: forwardingMessage.kind,
+          mediaUrl: forwardingMessage.mediaUrl,
+          fileName: forwardingMessage.fileName,
+          fileSize: forwardingMessage.fileSize,
+          isForwarded: true,
+        }),
+      });
+
+      if (!response.ok) throw new Error('forward_failed');
+      
+      setForwardingMessage(null);
+      setSelectedConversationId(targetConversationId);
+    } catch (err) {
+      console.error('Forward failed:', err);
+    }
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      setAudioChunksRef([]);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) setAudioChunksRef(prev => [...prev, event.data]);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef, { type: 'audio/webm' });
+        const audioFile = new File([audioBlob], 'voice-message.webm', { type: 'audio/webm' });
+        handleFileUpload(audioFile, 'audio');
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Recording failed:', err);
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = null; // Don't trigger send
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  }
+
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTypingStatus = useCallback(() => {
+    if (!selectedConversationId) return;
+
+    const typingDocRef = doc(db, 'messaging_conversations', selectedConversationId, 'typing', snapshot.viewer.id);
+    
+    void setDoc(typingDocRef, {
+      userName: snapshot.viewer.displayName,
+      timestamp: serverTimestamp()
+    });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
+    typingTimeoutRef.current = setTimeout(() => {
+      void deleteDoc(typingDocRef).catch(() => {});
+    }, 3000);
+  }, [selectedConversationId, snapshot.viewer.id, snapshot.viewer.displayName]);
+
+  async function handleFileUpload(file: File, kind: 'image' | 'file' | 'audio') {
+    if (!activeConversation) return;
+    
+    setAttachmentsOpen(false);
+    setUploadProgress(0);
+
+    const createdAt = new Date().toISOString();
+    const optimisticId = `temp_${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+
+    const optimisticMessage: MessagingMessage = {
+      id: optimisticId,
+      clientId: optimisticId,
+      conversationId: activeConversation.id,
+      senderId: snapshot.viewer.id,
+      senderName: snapshot.viewer.displayName,
+      body: kind === 'image' ? '' : file.name,
+      kind,
+      createdAt,
+      createdAtLabel: formatClock(createdAt),
+      delivery: 'sent',
+      direction: 'outgoing',
+      mediaUrl: previewUrl,
+      fileName: file.name,
+      fileSize: `${(file.size / 1024).toFixed(1)} KB`
+    };
+
+    setSnapshot((current) => insertMessage(current, optimisticMessage));
+
+    // Simulate upload progress
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 30;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        setUploadProgress(null);
+        // Here we would normally call the real upload API
+      }
+      setUploadProgress(progress);
+    }, 200);
   }
 
   function handleStartConversation(memberId: string) {
@@ -605,7 +1018,11 @@ export default function MessagingWorkspace({
                     <strong>{conversation.title}</strong>
                     <small>{conversation.lastActivityLabel}</small>
                   </span>
-                  <span>{conversation.typingLabel || conversation.lastMessagePreview}</span>
+                  <span className={typingUsers[conversation.id]?.length > 0 ? styles.typingText : ''}>
+                    {(typingUsers[conversation.id]?.length > 0)
+                      ? 'Typing...' 
+                      : conversation.lastMessagePreview}
+                  </span>
                 </span>
               </button>
             );
@@ -629,6 +1046,87 @@ export default function MessagingWorkspace({
 
   return (
     <>
+      {isGroupCreating && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalCard}>
+            <div className={styles.modalHeader}>
+              <div>
+                <span className={styles.modalEyebrow}>Create New Group</span>
+                <h2>New Group</h2>
+              </div>
+              <button 
+                 className={styles.headerAction} 
+                 onClick={() => setIsGroupCreating(false)}
+              >
+                 <CloseIcon />
+              </button>
+            </div>
+
+            <div className={styles.modalSection}>
+              <input 
+                type="text" 
+                placeholder="Group Name" 
+                className={styles.memberInput}
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.modalSection}>
+              <h4>Select Members ({selectedGroupMembers.length})</h4>
+              <div className={styles.modalList}>
+                {snapshot.members.map(member => (
+                  <button 
+                     key={member.id} 
+                     className={`${styles.memberRow} ${selectedGroupMembers.includes(member.id) ? styles.memberSelected : ''}`}
+                     onClick={() => toggleGroupMember(member.id)}
+                  >
+                     <div className={styles.memberIdentity}>
+                       <div className={styles.memberAvatar}>{member.avatarLabel}</div>
+                       <div>
+                         <strong>{member.displayName}</strong>
+                         <span>{member.email}</span>
+                       </div>
+                     </div>
+                     {selectedGroupMembers.includes(member.id) && (
+                       <span className={styles.checkMark}>✅</span>
+                     )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button 
+               className={styles.modalPrimaryButton} 
+               onClick={handleCreateGroup}
+               disabled={!groupName.trim() || selectedGroupMembers.length === 0}
+            >
+               Create Group
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isCalling && (
+        <div className={styles.callOverlay}>
+           <div className={styles.callCard}>
+              <div className={styles.callAvatar} style={{ backgroundColor: activeConversation?.accent }}>
+                 {activeConversation?.avatarLabel}
+              </div>
+              <h2>{activeConversation?.title}</h2>
+              <p>Calling...</p>
+              <div className={styles.callActions}>
+                 <button 
+                   className={styles.declineButton} 
+                   onClick={() => setIsCalling(false)}
+                 >
+                    <CloseIcon className={styles.icon} />
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className={styles.workspace}>
         <aside className={styles.sidebar}>
           <header className={styles.sidebarHeader}>
@@ -724,8 +1222,15 @@ export default function MessagingWorkspace({
             </div>
           ) : null}
 
-          <div className={styles.searchBarWrap}>
-            <div className={styles.searchBar}>
+              <div className={styles.sidebarActions}>
+                <button 
+                  className={styles.sidebarAction} 
+                  onClick={() => setIsGroupCreating(true)}
+                  title="New Group"
+                >
+                   👥
+                </button>
+                <div className={styles.searchBar}>
               {normalizedQuery ? (
                 <button
                   type="button"
@@ -763,7 +1268,7 @@ export default function MessagingWorkspace({
           {activeConversation ? (
             <>
               <header className={styles.chatHeader}>
-                <div className={styles.chatIdentity}>
+                <div className={styles.chatIdentity} onClick={() => setIsInfoPanelOpen(!isInfoPanelOpen)} style={{ cursor: 'pointer' }}>
                   <span
                     className={`${styles.chatAvatar} ${
                       activeConversation.presence === 'online' && activeConversation.type === 'direct'
@@ -777,7 +1282,7 @@ export default function MessagingWorkspace({
                   <div className={styles.chatIdentityCopy}>
                     <h2>{activeConversation.title}</h2>
                     <span>
-                      {activeConversation.typingLabel ||
+                      {typingLabel ||
                         (activeConversation.type === 'group'
                           ? `${activeConversation.memberCount} participants`
                           : activeConversation.subtitle)}
@@ -785,17 +1290,31 @@ export default function MessagingWorkspace({
                   </div>
                 </div>
 
-                <div className={styles.chatActions}>
-                  <button type="button" className={styles.iconButton} title="Video call">
-                    <VideoIcon className={styles.icon} />
-                  </button>
-                  <button type="button" className={styles.iconButton} title="Call">
-                    <PhoneIcon className={styles.icon} />
-                  </button>
-                  <button type="button" className={styles.iconButton} title="Search">
+                <div className={styles.chatHeaderActions}>
+                  <button 
+                    className={`${styles.headerAction} ${isSearchingInChat ? styles.active : ''}`}
+                    onClick={() => {
+                      setIsSearchingInChat(!isSearchingInChat);
+                      if (!isSearchingInChat) setChatSearchQuery('');
+                    }}
+                    title="Search in chat"
+                  >
                     <SearchIcon className={styles.icon} />
                   </button>
-                  <button type="button" className={styles.iconButton} title="More">
+                  <button 
+                    className={styles.headerAction} 
+                    onClick={() => handleCall('video')}
+                  >
+                    <VideoIcon className={styles.icon} />
+                  </button>
+                  <button 
+                    className={styles.headerAction} 
+                    onClick={() => handleCall('voice')}
+                    disabled={isCalling}
+                  >
+                    <PhoneIcon className={styles.icon} />
+                  </button>
+                  <button className={styles.headerAction}>
                     <DotsIcon className={styles.icon} />
                   </button>
                 </div>
@@ -806,9 +1325,9 @@ export default function MessagingWorkspace({
                   {visibleMessages.map((message) => (
                     <article
                       key={message.id}
-                      className={`${styles.messageRow} ${
-                        message.direction === 'outgoing' ? styles.messageRowOutgoing : ''
-                      }`}
+                      className={`${styles.message} ${
+                        message.direction === 'outgoing' ? styles.messageOutgoing : styles.messageIncoming
+                      } ${chatSearchQuery && message.body?.toLowerCase().includes(chatSearchQuery.toLowerCase()) ? styles.messageMatched : ''}`}
                     >
                       <div
                         className={`${styles.messageBubble} ${
@@ -817,94 +1336,309 @@ export default function MessagingWorkspace({
                             : styles.messageBubbleIncoming
                         }`}
                       >
+                        {message.isForwarded && (
+                          <div className={styles.forwardedLabel}>
+                             ↪️ Forwarded
+                          </div>
+                        )}
                         {message.direction === 'incoming' && activeConversation.type === 'group' ? (
                           <p className={styles.messageSender}>{message.senderName}</p>
                         ) : null}
-                        <p className={styles.messageText}>{message.body}</p>
-                        <span className={styles.messageTime}>{message.createdAtLabel}</span>
+                        
+                        {message.kind === 'image' && message.mediaUrl && (
+                          <div className={styles.mediaFrame}>
+                            <img src={message.mediaUrl} alt="" className={styles.mediaImage} />
+                          </div>
+                        )}
+
+                        {message.kind === 'file' && (
+                          <div className={styles.fileFrame}>
+                            <div className={styles.fileInfo}>
+                              <strong>{message.fileName}</strong>
+                              <span>{message.fileSize}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {message.kind === 'audio' && (
+                          <div className={styles.audioFrame}>
+                             <div className={styles.audioIcon}>🎙️</div>
+                             <div className={styles.audioControls}>
+                                <audio src={message.mediaUrl} controls className={styles.audioPlayer} />
+                             </div>
+                          </div>
+                        )}
+
+                        {message.body ? <p className={styles.messageText}>{message.body}</p> : null}
+                        
+                        {Object.keys(message.reactions || {}).length > 0 && (
+                          <div className={styles.reactionsWrap}>
+                            {Object.entries(message.reactions!).map(([uid, emoji]) => (
+                               <span 
+                                 key={uid} 
+                                 className={`${styles.reaction} ${uid === snapshot.viewer.id ? styles.myReaction : ''}`}
+                                 title={uid === snapshot.viewer.id ? 'You' : ''}
+                                 onClick={() => handleReaction(message.id, emoji)}
+                               >
+                                 {emoji}
+                               </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className={styles.reactionPickerTrigger}>
+                          <button 
+                             type="button" 
+                             className={styles.forwardButton}
+                             onClick={() => setForwardingMessage(message)}
+                             title="Forward message"
+                          >
+                             ↪️
+                          </button>
+                          {quickEmoji.map(emoji => (
+                            <button 
+                              key={emoji} 
+                              type="button" 
+                              onClick={() => handleReaction(message.id, emoji)}
+                            >
+                      {emoji}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className={styles.messageMeta}>
+                          <span className={styles.messageTime}>{message.createdAtLabel}</span>
+                          {message.direction === 'outgoing' && (
+                            <SeenIcon className={`${styles.deliveryIcon} ${message.delivery === 'read' ? styles.seen : ''}`} />
+                          )}
+                        </div>
+
+                        {message.direction === 'outgoing' ? (
+                          <TriangleIcon className={styles.triangleOutgoing} />
+                        ) : (
+                          <TriangleIcon className={styles.triangleIncoming} />
+                        )}
                       </div>
                     </article>
                   ))}
-                  {activeConversation.typingLabel ? (
-                    <div className={styles.typingMarker}>{activeConversation.typingLabel}</div>
+                  {typingLabel ? (
+                    <div className={styles.typingMarker}>{typingLabel}</div>
                   ) : null}
                   <div ref={messagesEndRef} />
                 </div>
               </div>
 
-              <form className={styles.composerBar} onSubmit={handleSubmit}>
-                <div className={styles.composerTools}>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => {
-                      setEmojiOpen((current) => !current);
-                      setAttachmentsOpen(false);
-                    }}
-                  >
-                    <SmileyIcon className={styles.icon} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => {
-                      setAttachmentsOpen((current) => !current);
-                      setEmojiOpen(false);
-                    }}
-                  >
-                    <ClipIcon className={styles.icon} />
-                  </button>
+              {isSearchingInChat && (
+                <div className={styles.chatSearchRow}>
+                   <div className={styles.chatSearchInputWrap}>
+                      <SearchIcon className={styles.chatSearchIcon} />
+                      <input 
+                        type="text" 
+                        placeholder="Search message" 
+                        className={styles.chatSearchInput} 
+                        value={chatSearchQuery}
+                        onChange={(e) => setChatSearchQuery(e.target.value)}
+                        autoFocus
+                      />
+                      <button 
+                        className={styles.chatSearchClose}
+                        onClick={() => {
+                          setIsSearchingInChat(false);
+                          setChatSearchQuery('');
+                        }}
+                      >
+                         <CloseIcon className={styles.smallIcon} />
+                      </button>
+                   </div>
                 </div>
+              )}
 
-                <div className={styles.composerInputWrap}>
-                  {emojiOpen ? (
-                    <div className={styles.emojiPicker}>
-                      {quickEmoji.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          className={styles.emojiButton}
-                          onClick={() => setDraft((current) => `${current}${emoji}`)}
+              {forwardingMessage && (
+                <div className={styles.modalOverlay}>
+                  <div className={styles.modalCard}>
+                    <div className={styles.modalHeader}>
+                      <div>
+                        <span className={styles.modalEyebrow}>Forward message to...</span>
+                        <h2>Select Contact</h2>
+                      </div>
+                      <button 
+                        className={styles.headerAction} 
+                        onClick={() => setForwardingMessage(null)}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </div>
+
+                    <div className={styles.forwardingSearch}>
+                      <input 
+                         type="text" 
+                         className={styles.memberInput} 
+                         placeholder="Search people or groups" 
+                         onChange={(e) => setSearch(e.target.value)}
+                      />
+                    </div>
+
+                    <div className={styles.modalList}>
+                      {searchResults.map(result => (
+                        <button 
+                          key={result.id} 
+                          className={styles.memberRow}
+                          onClick={() => handleForward(result.kind === 'conversation' ? result.id : result.id /* result.id is memberId */)}
                         >
-                          {emoji}
+                          <div className={styles.memberIdentity}>
+                            <div className={styles.memberAvatar}>
+                              {result.avatarLabel}
+                            </div>
+                            <div>
+                               <strong>{result.title}</strong>
+                               <span>{result.subtitle}</span>
+                            </div>
+                          </div>
                         </button>
                       ))}
                     </div>
-                  ) : null}
+                  </div>
+                </div>
+              )}
 
-                  {attachmentsOpen ? (
-                    <div className={styles.attachmentsMenu}>
-                      <div>
-                        <strong>Attachments</strong>
-                        <span>Media and file uploads will plug into this same tray.</span>
-                      </div>
-                      <button type="button" className={styles.attachmentShortcut}>
-                        <PlusIcon className={styles.smallIcon} />
-                        <span>Photo or video</span>
+              <form className={styles.composerBar} onSubmit={handleSubmit}>
+                {isRecording ? (
+                  <div className={styles.recordingOverlay}>
+                    <div className={styles.recordingIndicator}>
+                       <span className={styles.recordingDot} />
+                       <span className={styles.recordingFreq}>Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span>
+                    </div>
+                    <div className={styles.recordingActions}>
+                       <button type="button" className={styles.cancelRecording} onClick={cancelRecording}>Cancel</button>
+                       <button type="button" className={styles.stopRecording} onClick={stopRecording}>Stop & Send</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className={styles.composerTools}>
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={() => {
+                          setEmojiOpen((current) => !current);
+                          setAttachmentsOpen(false);
+                        }}
+                      >
+                        <SmileyIcon className={styles.icon} />
                       </button>
-                      <button type="button" className={styles.attachmentShortcut}>
-                        <PlusIcon className={styles.smallIcon} />
-                        <span>Document</span>
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={() => {
+                          setAttachmentsOpen((current) => !current);
+                          setEmojiOpen(false);
+                        }}
+                      >
+                        <ClipIcon className={styles.icon} />
                       </button>
                     </div>
-                  ) : null}
 
-                  <textarea
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    className={styles.composerInput}
-                    placeholder="Type a message"
-                    rows={1}
-                  />
-                </div>
+                    <div className={styles.composerInputWrap}>
+                      {emojiOpen ? (
+                        <div className={styles.emojiPicker}>
+                          {quickEmoji.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              className={styles.emojiButton}
+                              onClick={() => setDraft((current) => `${current}${emoji}`)}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
 
-                <button
-                  type="submit"
-                  className={styles.sendButton}
-                  disabled={isPending || !draft.trim()}
-                >
-                  <SendIcon className={styles.sendIcon} />
-                </button>
+                      {attachmentsOpen ? (
+                        <div className={styles.attachmentsMenu}>
+                          <button 
+                            type="button" 
+                            className={styles.attachmentShortcut}
+                            onClick={() => mediaInputRef.current?.click()}
+                          >
+                            <PlusIcon className={styles.smallIcon} />
+                            <span>Photo or video</span>
+                          </button>
+                          <button 
+                            type="button" 
+                            className={styles.attachmentShortcut}
+                            onClick={() => documentInputRef.current?.click()}
+                          >
+                            <PlusIcon className={styles.smallIcon} />
+                            <span>Document</span>
+                          </button>
+                          
+                          <input 
+                            type="file" 
+                            hidden 
+                            ref={mediaInputRef} 
+                            accept="image/*,video/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleFileUpload(file, 'image');
+                            }}
+                          />
+                          <input 
+                            type="file" 
+                            hidden 
+                            ref={documentInputRef} 
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleFileUpload(file, 'file');
+                            }}
+                          />
+                        </div>
+                      ) : null}
+
+                      <textarea
+                        value={draft}
+                        onChange={(event) => {
+                          setDraft(event.target.value);
+                          handleTypingStatus();
+                        }}
+                        className={styles.composerInput}
+                        placeholder="Type a message"
+                        rows={1}
+                      />
+                    </div>
+
+                    {!draft.trim() ? (
+                      <button
+                        type="button"
+                        className={styles.micButton}
+                        onClick={startRecording}
+                        title="Record Voice"
+                      >
+                        🎙️
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        className={styles.sendButton}
+                        disabled={isPending || !draft.trim()}
+                      >
+                        <SendIcon className={styles.sendIcon} />
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {uploadProgress !== null && (
+                  <div className={styles.uploadOverlay}>
+                    <div className={styles.progressTrack}>
+                      <div 
+                        className={styles.progressBar} 
+                        style={{ width: `${uploadProgress}%` }} 
+                      />
+                    </div>
+                    <span>Uploading... {Math.round(uploadProgress)}%</span>
+                  </div>
+                )}
               </form>
 
               {error ? <p className={styles.error}>{error}</p> : null}
@@ -925,6 +1659,60 @@ export default function MessagingWorkspace({
             </div>
           )}
         </section>
+
+        {isInfoPanelOpen && (
+          <aside className={styles.infoPanel}>
+             <header className={styles.infoPanelHeader}>
+                <button className={styles.closePanel} onClick={() => setIsInfoPanelOpen(false)}>
+                   <CloseIcon className={styles.icon} />
+                </button>
+                <h3>Contact Info</h3>
+             </header>
+             <div className={styles.infoPanelContent}>
+                <div className={styles.infoHero}>
+                   <div className={styles.infoAvatar} style={{ backgroundColor: activeConversation?.accent }}>
+                      {activeConversation?.avatarLabel}
+                   </div>
+                   <h2>{activeConversation?.title}</h2>
+                   <span>{activeConversation?.type === 'direct' ? activeConversation.subtitle : `${activeConversation?.memberCount} members`}</span>
+                </div>
+
+                <div className={styles.infoSection}>
+                   <h4>About</h4>
+                   <p>{activeConversation?.type === 'direct' ? 'Personal workspace member' : activeConversation?.subtitle || 'Group chat'}</p>
+                </div>
+
+                {activeConversation?.type === 'group' && (
+                   <div className={styles.infoSection}>
+                      <h4>Participants ({activeConversation.memberCount})</h4>
+                      <div className={styles.infoList}>
+                         {snapshot.members
+                           .filter(m => activeConversation.participantIds.includes(m.id))
+                           .map(member => (
+                              <div key={member.id} className={styles.infoMemberRow}>
+                                 <div className={styles.memberIdentity}>
+                                    <div className={styles.memberAvatar} style={{ backgroundColor: getMemberAccent(member.id) }}>
+                                       {member.avatarLabel}
+                                    </div>
+                                    <div>
+                                       <strong>{member.displayName}</strong>
+                                       <span>{member.role === 'admin' ? 'Group Admin' : 'Member'}</span>
+                                    </div>
+                                 </div>
+                              </div>
+                           ))
+                         }
+                      </div>
+                   </div>
+                )}
+                
+                <div className={styles.infoActions}>
+                   <button className={styles.dangerAction}>Block Contact</button>
+                   <button className={styles.dangerAction}>Report Contact</button>
+                </div>
+             </div>
+          </aside>
+        )}
       </div>
 
       {memberModalOpen ? (

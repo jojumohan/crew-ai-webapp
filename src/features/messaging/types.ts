@@ -24,6 +24,7 @@ export interface ConversationSummary {
   accent: string;
   unreadCount: number;
   memberCount: number;
+  participantIds: string[];
   lastMessagePreview: string;
   lastActivityLabel: string;
   presence: PresenceState;
@@ -37,11 +38,16 @@ export interface MessagingMessage {
   senderId: string;
   senderName: string;
   body: string;
-  kind: 'text';
+  kind: 'text' | 'image' | 'video' | 'file' | 'audio';
   createdAt: string;
   createdAtLabel: string;
   delivery: MessageDeliveryState;
   direction: 'incoming' | 'outgoing';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: string;
+  reactions?: Record<string, string>; // userId -> emoji
+  isForwarded?: boolean;
 }
 
 export interface MessagingSnapshot {
@@ -52,10 +58,15 @@ export interface MessagingSnapshot {
   pendingMembers: WorkspaceMember[];
 }
 
-export interface SendMessageInput {
+export type SendMessageInput = {
   conversationId: string;
   body: string;
-}
+  kind?: 'text' | 'image' | 'video' | 'file' | 'audio';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: string;
+  isForwarded?: boolean;
+};
 
 export interface ViewerSession {
   id?: string;

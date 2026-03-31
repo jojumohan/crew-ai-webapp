@@ -5,6 +5,11 @@ import { createMessage } from '@/features/messaging/store';
 type MessageBody = {
   conversationId?: string;
   body?: string;
+  kind?: 'text' | 'image' | 'video' | 'file' | 'audio';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: string;
+  isForwarded?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -27,6 +32,11 @@ export async function POST(request: Request) {
     {
       conversationId: payload.conversationId,
       body: payload.body,
+      kind: payload.kind,
+      mediaUrl: payload.mediaUrl,
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      isForwarded: payload.isForwarded,
     },
     {
       id: user.id,

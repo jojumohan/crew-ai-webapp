@@ -1,4 +1,4 @@
-import { db as adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import {
   appendMessage as appendMockMessage,
   getConversationMessages as getMockConversationMessages,
@@ -13,6 +13,7 @@ import type {
   ViewerSession,
   WorkspaceMember,
 } from './types';
+import webpush from 'web-push';
 
 type Timestampish = Date | string | null | undefined | { toDate(): Date };
 
@@ -43,7 +44,13 @@ type FirestoreMessage = {
   senderId: string;
   senderName: string;
   body: string;
-  kind: 'text';
+  kind: 'text' | 'image' | 'video' | 'file' | 'audio';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: string;
+  isForwarded?: boolean;
+  reactions?: Record<string, string>;
+  delivery?: 'sent' | 'delivered' | 'read';
   createdAt?: Timestampish;
 };
 
@@ -327,10 +334,15 @@ async function loadConversationMessageDocs(conversationId: string): Promise<Mess
       senderId: data.senderId,
       senderName: data.senderName,
       body: data.body,
-      kind: 'text',
+      kind: data.kind || 'text',
+      mediaUrl: data.mediaUrl,
+      fileName: data.fileName,
+      fileSize: data.fileSize,
+      isForwarded: data.isForwarded || false,
+      reactions: data.reactions || {},
       createdAt,
       createdAtLabel: formatClock(createdAt),
-      delivery: 'read',
+      delivery: data.delivery || 'sent',
       direction: 'incoming',
     } satisfies MessagingMessage;
   });
@@ -473,6 +485,7 @@ async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<Mess
       accent: getAccent(conversation.id),
       unreadCount: 0,
       memberCount: conversation.memberCount,
+      participantIds,
       lastMessagePreview: latestMessage
         ? latestMessage.direction === 'outgoing'
           ? `You: ${latestMessage.body}`
@@ -516,52 +529,137 @@ export async function loadConversationMessages(
   }
 }
 
-export async function createDirectConversation(
-  memberId: string,
+export type ConversationCreateBody = {
+  type?: 'direct' | 'group';
+  memberId?: string;
+  title?: string;
+  participantIds?: string[];
+};
+
+export async function createConversation(
+  body: ConversationCreateBody,
   viewerSession?: ViewerSession
 ): Promise<{ conversationId: string; snapshot: MessagingSnapshot } | null> {
-  if (!memberId || !viewerSession?.id) {
+  if (!viewerSession?.id) {
     return null;
   }
 
   try {
     const { viewer, teamDirectory } = await buildViewerContext(viewerSession);
-    const member = teamDirectory.memberById[memberId];
+    const createdAt = new Date();
 
-    if (!member || member.status !== 'active' || member.id === viewer.id) {
-      return null;
+    if (body.type === 'direct' && body.memberId) {
+      const member = teamDirectory.memberById[body.memberId];
+      if (!member || member.status !== 'active' || member.id === viewer.id) return null;
+
+      const conversationId = buildDirectConversationId(viewer.id, member.id);
+      const conversationRef = adminDb.collection(collections.conversations).doc(conversationId);
+      const existingConversation = await conversationRef.get();
+
+      if (!existingConversation.exists) {
+        const participantIds = [viewer.id, member.id];
+        await Promise.all([
+          adminDb.collection(collections.profiles).doc(member.id).set(toProfilePayload(member), { merge: true }),
+          conversationRef.set({
+            type: 'direct',
+            title: null,
+            participantIds,
+            memberCount: participantIds.length,
+            createdAt,
+            updatedAt: createdAt,
+          } satisfies FirestoreConversation),
+        ]);
+      }
+      const snapshot = await getFirestoreSnapshot(viewerSession);
+      return { conversationId, snapshot };
     }
 
-    const conversationId = buildDirectConversationId(viewer.id, member.id);
-    const conversationRef = adminDb.collection(collections.conversations).doc(conversationId);
-    const existingConversation = await conversationRef.get();
-    const participantIds = [viewer.id, member.id];
+    if (body.type === 'group' && body.title && body.participantIds) {
+      const validMembers = body.participantIds
+        .map((id) => teamDirectory.memberById[id])
+        .filter((m): m is WorkspaceMember => Boolean(m && m.status === 'active'));
 
-    if (!existingConversation.exists) {
-      const createdAt = new Date();
+      const participantIds = [...new Set([viewer.id, ...validMembers.map((m) => m.id)])];
+      const conversationRef = adminDb.collection(collections.conversations).doc();
 
       await Promise.all([
-        adminDb.collection(collections.profiles).doc(member.id).set(toProfilePayload(member), { merge: true }),
+        ...validMembers.map((m) => adminDb.collection(collections.profiles).doc(m.id).set(toProfilePayload(m), { merge: true })),
         conversationRef.set({
-          type: 'direct',
-          title: null,
+          type: 'group',
+          title: body.title.trim(),
           participantIds,
           memberCount: participantIds.length,
           createdAt,
           updatedAt: createdAt,
         } satisfies FirestoreConversation),
       ]);
+
+      const snapshot = await getFirestoreSnapshot(viewerSession);
+      return { conversationId: conversationRef.id, snapshot };
     }
 
-    const snapshot = await getFirestoreSnapshot(viewerSession);
-
-    return {
-      conversationId,
-      snapshot,
-    };
+    return null;
   } catch (error) {
     console.error('[messaging-store] conversation create failed:', error);
     return null;
+  }
+}
+
+async function sendPush(
+  participantIds: string[],
+  senderId: string,
+  payload: { title: string; body: string; url: string; icon?: string }
+): Promise<void> {
+  const vapidKeys = {
+    public: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
+    private: process.env.VAPID_PRIVATE_KEY || '',
+  };
+
+  if (!vapidKeys.public || !vapidKeys.private) {
+    console.warn('[push] VAPID keys missing, skipping notifications');
+    return;
+  }
+
+  webpush.setVapidDetails(
+    'mailto:aronlabz@example.com',
+    vapidKeys.public,
+    vapidKeys.private
+  );
+
+  const notifyPids = participantIds.filter(pid => pid !== senderId);
+  if (notifyPids.length === 0) return;
+
+  try {
+    for (const pid of notifyPids) {
+      const subsSnapshot = await adminDb
+        .collection('messaging_profiles')
+        .doc(pid)
+        .collection('subscriptions')
+        .get();
+
+      if (subsSnapshot.empty) continue;
+
+      const promises = subsSnapshot.docs.map(doc => {
+        const sub = doc.data();
+        return webpush.sendNotification(
+          {
+             endpoint: sub.endpoint,
+             keys: sub.keys
+          },
+          JSON.stringify(payload)
+        ).catch(err => {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            // Subscription expired or invalid
+            return doc.ref.delete();
+          }
+          console.error('[push] fail for sub:', err);
+        });
+      });
+      
+      await Promise.allSettled(promises);
+    }
+  } catch (error) {
+    console.error('[push] broadcast failed:', error);
   }
 }
 
@@ -598,7 +696,11 @@ export async function createMessage(
         senderId: viewer.id,
         senderName: viewer.displayName,
         body: trimmedBody,
-        kind: 'text',
+        kind: input.kind || 'text',
+        mediaUrl: input.mediaUrl,
+        fileName: input.fileName,
+        fileSize: input.fileSize,
+        isForwarded: input.isForwarded,
         createdAt,
       } satisfies FirestoreMessage);
 
@@ -623,6 +725,26 @@ export async function createMessage(
 
     const snapshot = await getFirestoreSnapshot(viewerSession);
 
+    // Fire off push notifications background
+    void (async () => {
+       const convoDoc = await adminDb.collection(collections.conversations).doc(input.conversationId).get();
+       if (convoDoc.exists) {
+          const convo = convoDoc.data() as FirestoreConversation;
+          const title = convo.type === 'group' ? `${convo.title}: ${viewer.displayName}` : viewer.displayName;
+          
+          await sendPush(
+            convo.participantIds,
+            viewer.id,
+            {
+              title,
+              body: trimmedBody,
+              url: `/chat?id=${input.conversationId}`,
+              icon: viewer.avatarLabel ? undefined : '/icon.svg'
+            }
+          );
+       }
+    })();
+
     return {
       message: {
         id: messageRef.id,
@@ -631,7 +753,11 @@ export async function createMessage(
         senderId: viewer.id,
         senderName: viewer.displayName,
         body: trimmedBody,
-        kind: 'text',
+        kind: input.kind || 'text',
+        mediaUrl: input.mediaUrl,
+        fileName: input.fileName,
+        fileSize: input.fileSize,
+        isForwarded: input.isForwarded,
         createdAt: createdAt.toISOString(),
         createdAtLabel: formatClock(createdAt.toISOString()),
         delivery: 'delivered',
