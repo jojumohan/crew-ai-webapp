@@ -18,5 +18,14 @@ service cloud.firestore {
     match /standup_signals/{document=**} {
       allow read, write: if true;
     }
+    match /standup_state/{document=**} {
+      allow read, write: if true;
+    }
+    match /calls/{callId} {
+      allow read, write: if true;
+    }
+    match /call_signals/{document=**} {
+      allow read, write: if true;
+    }
   }
 }

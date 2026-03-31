@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       const data = await res.json();
       let replyText = data.reply || "Sorry, I couldn't process that.";
 
-      // If agent wants to send an email, execute it and append result
+      // If agent wants to send an email, execute it and replace reply with confirmation
       for (const action of (data.actions || [])) {
         if (action.type === 'email_send' && action.to) {
           try {
@@ -55,8 +55,14 @@ export async function POST(req: NextRequest) {
               body: JSON.stringify({ to: action.to, subject: action.subject, body: action.body }),
             });
             const sendData = await sendRes.json();
-            if (sendData.ok) replyText += `\n\n✅ Email sent to ${action.to}`;
-          } catch { /* silent */ }
+            if (sendData.ok) {
+              replyText = `✅ Done! I've sent the email.\n\n**To:** ${action.to}\n**Subject:** ${action.subject}\n\nLet me know if you need anything else.`;
+            } else {
+              replyText = `❌ I tried to send the email but something went wrong. Please try again.`;
+            }
+          } catch {
+            replyText = `❌ Failed to send the email — network error. Please try again.`;
+          }
         }
       }
 

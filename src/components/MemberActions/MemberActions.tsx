@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { db } from '@/lib/firebase-client';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import styles from './MemberActions.module.css';
 
 interface MemberActionsProps {
@@ -11,48 +14,55 @@ interface MemberActionsProps {
 
 export default function MemberActions({ userId, userName }: MemberActionsProps) {
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState('');
   const router = useRouter();
+  const { data: session } = useSession();
 
   async function callUser() {
+    if (!session?.user?.id || loading) return;
     setLoading(true);
-    setMsg('Calling...');
     try {
-      const res = await fetch('/api/push/ring', {
+      const callerName = session.user.name ?? 'Someone';
+      // Create call document in Firestore — callee's IncomingCall listener will pick this up
+      const callDoc = await addDoc(collection(db, 'calls'), {
+        callerId:   session.user.id,
+        callerName,
+        calleeId:   userId,
+        calleeName: userName,
+        status:     'ringing',
+        createdAt:  serverTimestamp(),
+      });
+
+      // Also send a push notification so the ring plays on their device
+      fetch('/api/push/ring', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          targetUserId: userId,
-          body: `Direct contact request from teammate.`
-        }),
-      });
-      const data = await res.json();
-      setMsg(data.ok ? 'Sent!' : 'Failed');
+        body: JSON.stringify({ targetUserId: userId }),
+      }).catch(() => {});
+
+      // Navigate to the call room
+      router.push(`/dashboard/call/${callDoc.id}`);
     } catch {
-      setMsg('Error');
+      setLoading(false);
     }
-    setLoading(false);
-    setTimeout(() => setMsg(''), 3000);
   }
 
   function openChat() {
-     router.push(`/dashboard/chat?u=${userId}`);
+    router.push(`/dashboard/chat?u=${userId}`);
   }
 
   return (
     <div className={styles.container}>
-      {msg && <span className={styles.toast}>{msg}</span>}
-      <button 
-        className={styles.btn} 
-        onClick={callUser} 
-        disabled={loading} 
+      <button
+        className={styles.btn}
+        onClick={callUser}
+        disabled={loading}
         title={`Call ${userName}`}
       >
         📞
       </button>
-      <button 
-        className={styles.btn} 
-        onClick={openChat} 
+      <button
+        className={styles.btn}
+        onClick={openChat}
         title={`Chat with ${userName}`}
       >
         💬

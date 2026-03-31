@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import Sidebar from '@/components/Sidebar/Sidebar';
+import IncomingCall from '@/components/IncomingCall/IncomingCall';
 import styles from './layout.module.css';
 
 export default async function DashboardLayout({
@@ -20,6 +21,7 @@ export default async function DashboardLayout({
     <div className={styles.shell}>
       <Sidebar />
       <main className={styles.main}>{children}</main>
+      <IncomingCall />
     </div>
   );
 }
