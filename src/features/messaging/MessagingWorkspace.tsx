@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useState, useTransition } from 'react';
 import { signOut } from 'next-auth/react';
+import { getSignOutCallbackUrl } from '@/lib/auth-client';
 import styles from './MessagingWorkspace.module.css';
 import type {
   ConversationSummary,
@@ -706,7 +707,7 @@ export default function MessagingWorkspace({
         <button
           type="button"
           className={styles.signOut}
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => signOut({ callbackUrl: getSignOutCallbackUrl() })}
         >
           Sign out
         </button>

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
+import { getSignOutCallbackUrl } from '@/lib/auth-client';
 import styles from './Sidebar.module.css';
 
 const NAV = [
@@ -42,7 +43,7 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        <button className={styles.signOut} onClick={() => signOut({ callbackUrl: '/login' })}>
+        <button className={styles.signOut} onClick={() => signOut({ callbackUrl: getSignOutCallbackUrl() })}>
           <span className={styles.icon}>🚪</span>
           <span>Sign Out</span>
         </button>
@@ -59,7 +60,7 @@ export default function Sidebar() {
             <span>{label}</span>
           </Link>
         ))}
-        <button className={styles.bottomSignOut} onClick={() => signOut({ callbackUrl: '/login' })}>
+        <button className={styles.bottomSignOut} onClick={() => signOut({ callbackUrl: getSignOutCallbackUrl() })}>
           <span className={styles.bottomNavIcon}>🚪</span>
           <span>Out</span>
         </button>
