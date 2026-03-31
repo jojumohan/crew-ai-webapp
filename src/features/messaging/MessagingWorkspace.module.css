@@ -1467,9 +1467,18 @@
     background: transparent;
     border: none;
     color: #8696a0;
-    padding: 8px;
-    margin-right: 4px;
+    padding: 14px;
+    margin-right: 8px;
     cursor: pointer;
+    z-index: 50;
+    position: relative;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobileBack:active {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
   }
 
   .chatIdentity {
@@ -1486,6 +1495,15 @@
 
   .messageBubble {
     max-width: 90%;
+  }
+
+  /* When a chat is active, hide sidebar and show chat */
+  .workspace.hasActiveChat .sidebar {
+    display: none;
+  }
+
+  .workspace.hasActiveChat .chatShell {
+    display: flex;
   }
 
   /* Info panel adjustment for mobile */

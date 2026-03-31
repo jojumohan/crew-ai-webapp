@@ -1269,7 +1269,11 @@ export default function MessagingWorkspace({
               <header className={styles.chatHeader}>
                 <button 
                   className={styles.mobileBack} 
-                  onClick={() => setSelectedConversationId(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedConversationId(null);
+                  }}
+                  title="Back to list"
                 >
                   <BackIcon className={styles.icon} />
                 </button>
