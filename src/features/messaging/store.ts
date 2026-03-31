@@ -605,6 +605,13 @@ export async function createConversation(
   }
 }
 
+export async function createDirectConversation(
+  memberId: string,
+  viewerSession?: ViewerSession
+): Promise<{ conversationId: string; snapshot: MessagingSnapshot } | null> {
+  return createConversation({ type: 'direct', memberId }, viewerSession);
+}
+
 async function sendPush(
   participantIds: string[],
   senderId: string,
