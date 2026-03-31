@@ -10,16 +10,16 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError('');
     setLoading(true);
 
-    const form = e.currentTarget;
+    const form = event.currentTarget;
     const username = (form.elements.namedItem('username') as HTMLInputElement).value;
     const password = (form.elements.namedItem('password') as HTMLInputElement).value;
 
-    const res = await signIn('credentials', {
+    const response = await signIn('credentials', {
       username,
       password,
       redirect: false,
@@ -27,63 +27,91 @@ export default function LoginPage() {
 
     setLoading(false);
 
-    if (res?.error) {
-      if (res.error === 'CallbackRouteError') {
-        setError('Your account is pending admin approval.');
+    if (response?.error) {
+      if (response.error === 'CallbackRouteError') {
+        setError('Your account is still pending approval.');
       } else {
-        setError('Invalid username or password.');
+        setError('That username and password did not match.');
       }
-    } else {
-      router.push('/dashboard');
+      return;
     }
+
+    router.push('/dashboard');
   }
 
   return (
     <main className={styles.main}>
-      <div className={styles.card + ' glass'}>
-        <div className={styles.header}>
-          <div className={styles.logo}>⚡</div>
-          <h1>Aronlabz Teams</h1>
-          <p>Sign in to your workspace</p>
+      <section className={styles.panel}>
+        <div className={styles.introCard}>
+          <p className={styles.eyebrow}>Messaging rebuild</p>
+          <h1>Sign in to the new chat workspace.</h1>
+          <p className={styles.copy}>
+            This login keeps the current auth flow while the product is rebuilt around
+            direct messaging, groups, media uploads, and calling.
+          </p>
+
+          <div className={styles.featureList}>
+            <article>
+              <strong>Phase 1</strong>
+              <span>Auth, 1-on-1 chat, uploads, message history, presence</span>
+            </article>
+            <article>
+              <strong>Phase 2</strong>
+              <span>Group chats, typing, read receipts, last seen</span>
+            </article>
+            <article>
+              <strong>Phase 3</strong>
+              <span>Voice and video calls, push notifications, devices</span>
+            </article>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="username">Username</label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              required
-              placeholder="e.g. joju"
-            />
+        <div className={styles.formCard}>
+          <div className={styles.formHeader}>
+            <div className={styles.badge}>W</div>
+            <div>
+              <p className={styles.eyebrow}>Secure access</p>
+              <h2>Welcome back</h2>
+            </div>
           </div>
 
-          <div className={styles.field}>
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              placeholder="••••••••"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <div className={styles.field}>
+              <label htmlFor="username">Username</label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                placeholder="Enter your username"
+                required
+              />
+            </div>
 
-          {error && <p className={styles.error}>{error}</p>}
+            <div className={styles.field}>
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
 
-          <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
+            {error ? <p className={styles.error}>{error}</p> : null}
 
-          <p style={{ textAlign: 'center', fontSize: '0.85rem', opacity: 0.5 }}>
-            New member?{' '}
-            <a href="/register" style={{ color: 'var(--primary)' }}>Request access</a>
+            <button type="submit" className={styles.button} disabled={loading}>
+              {loading ? 'Signing in...' : 'Enter workspace'}
+            </button>
+          </form>
+
+          <p className={styles.footnote}>
+            Current build uses the existing credentials flow while the new chat backend is being wired in.
           </p>
-        </form>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

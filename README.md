@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Messaging App Rebuild
 
-## Getting Started
+This project is being rebuilt into a WhatsApp-like web application focused on:
 
-First, run the development server:
+- Private 1-to-1 messaging
+- Group conversations
+- Media sharing
+- Voice and video calling
+- Secure, device-aware authentication
+
+## Current Direction
+
+The previous "Aronlabz Teams" product surface is being replaced with a chat-first architecture. Existing secrets and deployment files are being preserved during the rebuild so we do not lose working environment configuration.
+
+## Blueprint
+
+The full technical blueprint lives here:
+
+- [`WHATSAPP_CLONE_BLUEPRINT.md`](./WHATSAPP_CLONE_BLUEPRINT.md)
+
+## Immediate Build Order
+
+1. Replace the current UI shell with a messaging-first experience.
+2. Introduce durable conversation and message models.
+3. Add WebSocket-based real-time delivery and presence.
+4. Add media uploads and read-state sync.
+5. Integrate LiveKit-based calling and push notifications.
+
+## Existing Config Worth Preserving
+
+- `.env`
+- `.env.vercel`
+- `firebase.json`
+- `firestore.rules`
+- deployment scripts
+
+## New Messaging Config
+
+- `DATABASE_URL`
+
+When `DATABASE_URL` is present, the new `/api/v1` messaging routes and dashboard use PostgreSQL-backed reads and writes.
+Without it, the app falls back to the seeded in-memory store so the rebuild remains usable during setup.
+
+## Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

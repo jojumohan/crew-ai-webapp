@@ -8,6 +8,8 @@
   --border: rgba(255, 255, 255, 0.08);
   --accent: #059669;
   --cta: #F97316;
+  --font-dm-sans: "Segoe UI";
+  --font-space-grotesk: "Trebuchet MS";
 }
 
 html, body {

@@ -1,6 +1,5 @@
-import CallRoom from './CallRoom';
+import { redirect } from 'next/navigation';
 
-export default async function CallPage({ params }: { params: Promise<{ callId: string }> }) {
-  const { callId } = await params;
-  return <CallRoom callId={callId} />;
+export default function DashboardCallPage() {
+  redirect('/dashboard');
 }
