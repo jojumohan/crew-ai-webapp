@@ -305,6 +305,44 @@
   min-height: 0;
 }
 
+.chatColumnWide {
+  grid-column: 2 / -1;
+}
+
+.panelScreen {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  min-height: 100%;
+}
+
+.panelHero {
+  padding: 1.15rem;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.panelHero h2 {
+  font-size: 1.3rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.panelGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+.placeholderScreen {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.75rem;
+  min-height: 28rem;
+  text-align: center;
+}
+
 .chatHeader {
   align-items: center;
   padding-bottom: 1rem;
@@ -628,8 +666,16 @@
     min-height: 60vh;
   }
 
+  .chatColumnWide {
+    grid-column: auto;
+  }
+
   .detailColumn {
     display: grid;
+  }
+
+  .panelGrid {
+    grid-template-columns: 1fr;
   }
 }
 

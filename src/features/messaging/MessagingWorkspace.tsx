@@ -34,6 +34,8 @@ type TeamApiResponse = {
   users: TeamApiMember[];
 };
 
+type WorkspaceSection = 'chats' | 'members' | 'calls' | 'media';
+
 function formatClock(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
@@ -185,6 +187,7 @@ export default function MessagingWorkspace({
 }: {
   initialSnapshot: MessagingSnapshot;
 }) {
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>('chats');
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [selectedConversationId, setSelectedConversationId] = useState(
     initialSnapshot.conversations[0]?.id || ''
@@ -240,6 +243,7 @@ export default function MessagingWorkspace({
     ? snapshot.messagesByConversation[activeConversation.id] || []
     : [];
   const otherMembers = snapshot.members.filter((member) => member.id !== snapshot.viewer.id);
+  const isChatsSection = activeSection === 'chats';
 
   async function refreshMembers() {
     const response = await fetch('/api/team', { cache: 'no-store' });
@@ -434,6 +438,7 @@ export default function MessagingWorkspace({
 
           setSnapshot(payload.snapshot);
           setSelectedConversationId(payload.conversationId);
+          setActiveSection('chats');
         } catch (cause) {
           setMemberError(
             cause instanceof Error ? cause.message : 'Conversation could not be opened right now.'
@@ -441,6 +446,215 @@ export default function MessagingWorkspace({
         }
       })();
     });
+  }
+
+  function renderMemberFeedback() {
+    return (
+      <>
+        {memberNotice ? <p className={styles.success}>{memberNotice}</p> : null}
+        {memberError ? <p className={styles.error}>{memberError}</p> : null}
+      </>
+    );
+  }
+
+  function renderMembersDirectoryCard() {
+    return (
+      <div className={styles.detailCard}>
+        <div className={styles.detailHeader}>
+          <div>
+            <p className={styles.sectionEyebrow}>Members</p>
+            <h3>{snapshot.members.length} active accounts</h3>
+          </div>
+          {snapshot.pendingMembers.length > 0 ? (
+            <span className={styles.pendingBadge}>{snapshot.pendingMembers.length} pending</span>
+          ) : null}
+        </div>
+
+        <div className={styles.memberList}>
+          {otherMembers.length > 0 ? (
+            otherMembers.map((member) => (
+              <div key={member.id} className={styles.memberCard}>
+                <div className={styles.memberMeta}>
+                  <span className={styles.memberAvatar}>{member.avatarLabel}</span>
+                  <div>
+                    <strong>{member.displayName}</strong>
+                    <p>
+                      @{member.username} | {member.role}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.memberAction}
+                  onClick={() => handleStartConversation(member.id)}
+                  disabled={isMemberPending}
+                >
+                  Start chat
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className={styles.infoBox}>
+              <strong>No other approved members yet</strong>
+              <p>
+                {canManageMembers
+                  ? 'Create one below or approve a pending request to open the first real chat.'
+                  : 'Ask an admin to create or approve another account before testing chat.'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderMemberManagementCard() {
+    if (canManageMembers) {
+      return (
+        <div className={styles.detailCard}>
+          <p className={styles.sectionEyebrow}>Add member</p>
+          <h3>Create a real account</h3>
+          <form className={styles.memberForm} onSubmit={handleCreateMember}>
+            <input
+              name="display_name"
+              className={styles.memberInput}
+              placeholder="Full name"
+              value={newMember.display_name}
+              onChange={handleMemberFieldChange}
+              required
+            />
+            <input
+              name="username"
+              className={styles.memberInput}
+              placeholder="Username"
+              value={newMember.username}
+              onChange={handleMemberFieldChange}
+              required
+            />
+            <input
+              name="email"
+              className={styles.memberInput}
+              placeholder="Email"
+              type="email"
+              value={newMember.email}
+              onChange={handleMemberFieldChange}
+            />
+            <input
+              name="password"
+              className={styles.memberInput}
+              placeholder="Temporary password"
+              type="password"
+              value={newMember.password}
+              onChange={handleMemberFieldChange}
+              required
+              minLength={6}
+            />
+            <select
+              name="role"
+              className={styles.memberInput}
+              value={newMember.role}
+              onChange={handleMemberFieldChange}
+            >
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button type="submit" className={styles.memberPrimaryAction} disabled={isMemberPending}>
+              {isMemberPending ? 'Saving...' : 'Add member'}
+            </button>
+          </form>
+
+          {snapshot.pendingMembers.length > 0 ? (
+            <div className={styles.pendingList}>
+              {snapshot.pendingMembers.map((member) => (
+                <div key={member.id} className={styles.pendingCard}>
+                  <div>
+                    <strong>{member.displayName}</strong>
+                    <p>
+                      @{member.username} | requested {member.createdAtLabel}
+                    </p>
+                  </div>
+                  <div className={styles.pendingActions}>
+                    <button
+                      type="button"
+                      className={styles.memberApprove}
+                      onClick={() => handleApproval(member.id, 'approve')}
+                      disabled={isMemberPending}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.memberReject}
+                      onClick={() => handleApproval(member.id, 'reject')}
+                      disabled={isMemberPending}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.infoBox}>
+              <strong>No pending requests</strong>
+              <p>Anyone who signs up at `/register` will appear here for approval.</p>
+            </div>
+          )}
+
+          {renderMemberFeedback()}
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.detailCard}>
+        <p className={styles.sectionEyebrow}>New members</p>
+        <h3>How to add people</h3>
+        <ul className={styles.detailList}>
+          <li>Admins can create members directly from this dashboard.</li>
+          <li>Anyone else can request access at `/register`.</li>
+          <li>Pending requests need admin approval before login works.</li>
+        </ul>
+        {renderMemberFeedback()}
+      </div>
+    );
+  }
+
+  function renderSectionScreen() {
+    if (activeSection === 'members') {
+      return (
+        <div className={styles.panelScreen}>
+          <div className={styles.panelHero}>
+            <p className={styles.sectionEyebrow}>Members</p>
+            <h2>Manage and start chats with your team</h2>
+            <p>
+              Active members, pending requests, and account creation all live here now, even on
+              laptop-sized screens.
+            </p>
+          </div>
+          <div className={styles.panelGrid}>
+            {renderMembersDirectoryCard()}
+            {renderMemberManagementCard()}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSection === 'calls') {
+      return (
+        <div className={styles.placeholderScreen}>
+          <h2>Calls are coming next</h2>
+          <p>Voice and video will land after the core chat and member management flow is stable.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.placeholderScreen}>
+        <h2>Media uploads stay in the chat flow</h2>
+        <p>Once uploads are wired, this area will show shared files, previews, and delivery status.</p>
+      </div>
+    );
   }
 
   return (
@@ -455,19 +669,35 @@ export default function MessagingWorkspace({
         </div>
 
         <nav className={styles.railNav}>
-          <button type="button" className={styles.railActionActive}>
+          <button
+            type="button"
+            className={activeSection === 'chats' ? styles.railActionActive : styles.railAction}
+            onClick={() => setActiveSection('chats')}
+          >
             <span>Chats</span>
             <small>Live</small>
           </button>
-          <button type="button" className={styles.railAction}>
+          <button
+            type="button"
+            className={activeSection === 'members' ? styles.railActionActive : styles.railAction}
+            onClick={() => setActiveSection('members')}
+          >
             <span>Members</span>
             <small>{snapshot.members.length}</small>
           </button>
-          <button type="button" className={styles.railAction}>
+          <button
+            type="button"
+            className={activeSection === 'calls' ? styles.railActionActive : styles.railAction}
+            onClick={() => setActiveSection('calls')}
+          >
             <span>Calls</span>
             <small>Soon</small>
           </button>
-          <button type="button" className={styles.railAction}>
+          <button
+            type="button"
+            className={activeSection === 'media' ? styles.railActionActive : styles.railAction}
+            onClick={() => setActiveSection('media')}
+          >
             <span>Media</span>
             <small>Phase 1</small>
           </button>
@@ -482,7 +712,8 @@ export default function MessagingWorkspace({
         </button>
       </aside>
 
-      <section className={styles.listColumn}>
+      {isChatsSection ? (
+        <section className={styles.listColumn}>
         <div className={styles.viewerCard}>
           <div className={styles.viewerAvatar}>{snapshot.viewer.avatarLabel}</div>
           <div>
@@ -551,14 +782,16 @@ export default function MessagingWorkspace({
           ) : (
             <div className={styles.emptyListCard}>
               <h4>No real chats yet</h4>
-              <p>Add or approve a real member, then start a direct conversation from the right panel.</p>
+              <p>Add or approve a real member, then open the Members tab to start a direct conversation.</p>
             </div>
           )}
         </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section className={styles.chatColumn}>
-        {activeConversation ? (
+      <section className={`${styles.chatColumn} ${!isChatsSection ? styles.chatColumnWide : ''}`}>
+        {isChatsSection ? (
+          activeConversation ? (
           <>
             <header className={styles.chatHeader}>
               <div className={styles.chatIdentity}>
@@ -631,10 +864,14 @@ export default function MessagingWorkspace({
               from the member panel.
             </p>
           </div>
+        )
+        ) : (
+          renderSectionScreen()
         )}
       </section>
 
-      <aside className={styles.detailColumn}>
+      {isChatsSection ? (
+        <aside className={styles.detailColumn}>
         <div className={styles.detailCard}>
           <p className={styles.sectionEyebrow}>Build status</p>
           <h3>Real account workspace</h3>
@@ -651,159 +888,10 @@ export default function MessagingWorkspace({
           </div>
         </div>
 
-        <div className={styles.detailCard}>
-          <div className={styles.detailHeader}>
-            <div>
-              <p className={styles.sectionEyebrow}>Members</p>
-              <h3>{snapshot.members.length} active accounts</h3>
-            </div>
-            {snapshot.pendingMembers.length > 0 ? (
-              <span className={styles.pendingBadge}>{snapshot.pendingMembers.length} pending</span>
-            ) : null}
-          </div>
-
-          <div className={styles.memberList}>
-            {otherMembers.length > 0 ? (
-              otherMembers.map((member) => (
-                <div key={member.id} className={styles.memberCard}>
-                  <div className={styles.memberMeta}>
-                    <span className={styles.memberAvatar}>{member.avatarLabel}</span>
-                    <div>
-                      <strong>{member.displayName}</strong>
-                      <p>
-                        @{member.username} | {member.role}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.memberAction}
-                    onClick={() => handleStartConversation(member.id)}
-                    disabled={isMemberPending}
-                  >
-                    Start chat
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className={styles.infoBox}>
-                <strong>No other approved members yet</strong>
-                <p>
-                  {canManageMembers
-                    ? 'Create one below or approve a pending request to open the first real chat.'
-                    : 'Ask an admin to create or approve another account before testing chat.'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {canManageMembers ? (
-          <div className={styles.detailCard}>
-            <p className={styles.sectionEyebrow}>Add member</p>
-            <h3>Create a real account</h3>
-            <form className={styles.memberForm} onSubmit={handleCreateMember}>
-              <input
-                name="display_name"
-                className={styles.memberInput}
-                placeholder="Full name"
-                value={newMember.display_name}
-                onChange={handleMemberFieldChange}
-                required
-              />
-              <input
-                name="username"
-                className={styles.memberInput}
-                placeholder="Username"
-                value={newMember.username}
-                onChange={handleMemberFieldChange}
-                required
-              />
-              <input
-                name="email"
-                className={styles.memberInput}
-                placeholder="Email"
-                type="email"
-                value={newMember.email}
-                onChange={handleMemberFieldChange}
-              />
-              <input
-                name="password"
-                className={styles.memberInput}
-                placeholder="Temporary password"
-                type="password"
-                value={newMember.password}
-                onChange={handleMemberFieldChange}
-                required
-                minLength={6}
-              />
-              <select
-                name="role"
-                className={styles.memberInput}
-                value={newMember.role}
-                onChange={handleMemberFieldChange}
-              >
-                <option value="staff">Staff</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button type="submit" className={styles.memberPrimaryAction} disabled={isMemberPending}>
-                {isMemberPending ? 'Saving...' : 'Add member'}
-              </button>
-            </form>
-
-            {snapshot.pendingMembers.length > 0 ? (
-              <div className={styles.pendingList}>
-                {snapshot.pendingMembers.map((member) => (
-                  <div key={member.id} className={styles.pendingCard}>
-                    <div>
-                      <strong>{member.displayName}</strong>
-                      <p>
-                        @{member.username} | requested {member.createdAtLabel}
-                      </p>
-                    </div>
-                    <div className={styles.pendingActions}>
-                      <button
-                        type="button"
-                        className={styles.memberApprove}
-                        onClick={() => handleApproval(member.id, 'approve')}
-                        disabled={isMemberPending}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.memberReject}
-                        onClick={() => handleApproval(member.id, 'reject')}
-                        disabled={isMemberPending}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.infoBox}>
-                <strong>No pending requests</strong>
-                <p>Anyone who signs up at `/register` will appear here for approval.</p>
-              </div>
-            )}
-
-            {memberNotice ? <p className={styles.success}>{memberNotice}</p> : null}
-            {memberError ? <p className={styles.error}>{memberError}</p> : null}
-          </div>
-        ) : (
-          <div className={styles.detailCard}>
-            <p className={styles.sectionEyebrow}>New members</p>
-            <h3>How to add people</h3>
-            <ul className={styles.detailList}>
-              <li>Admins can create members directly from this dashboard.</li>
-              <li>Anyone else can request access at `/register`.</li>
-              <li>Pending requests need admin approval before login works.</li>
-            </ul>
-          </div>
-        )}
-      </aside>
+        {renderMembersDirectoryCard()}
+        {renderMemberManagementCard()}
+        </aside>
+      ) : null}
     </div>
   );
 }
