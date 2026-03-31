@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "env:check": "tsx scripts/check-env.ts",
     "db:migrate:messaging": "tsx scripts/run-messaging-migration.ts"
   },
   "dependencies": {

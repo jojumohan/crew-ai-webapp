@@ -1,4 +1,4 @@
-import { getDatabaseClient } from '@/lib/postgres';
+import { db as adminDb } from '@/lib/firebase-admin';
 import {
   appendMessage as appendMockMessage,
   getConversationMessages as getMockConversationMessages,
@@ -13,30 +13,37 @@ import type {
   ViewerSession,
 } from './types';
 
-type ConversationRow = {
-  id: string;
+type Timestampish = Date | string | null | undefined | { toDate(): Date };
+
+type FirestoreProfile = {
+  displayName: string;
+  username: string;
+  phoneLabel: string;
+  about: string;
+  avatarLabel: string;
+  lastSeenAt?: Timestampish;
+};
+
+type FirestoreConversation = {
   type: 'direct' | 'group';
-  title: string | null;
-  created_at: string | Date;
-  last_message_at: string | Date | null;
-  member_count: number;
+  title?: string | null;
+  participantIds: string[];
+  memberCount: number;
+  createdAt?: Timestampish;
+  updatedAt?: Timestampish;
+  lastMessageAt?: Timestampish;
+  lastMessageText?: string;
+  lastMessageSenderId?: string;
+  lastMessageSenderName?: string;
 };
 
-type MemberRow = {
-  conversation_id: string;
-  user_id: string;
-  display_name: string;
-  last_seen_at: string | Date | null;
-};
-
-type MessageRow = {
-  id: string;
-  client_id: string;
-  conversation_id: string;
-  sender_user_id: string;
-  sender_name: string;
-  body: string | null;
-  created_at: string | Date;
+type FirestoreMessage = {
+  clientId: string;
+  senderId: string;
+  senderName: string;
+  body: string;
+  kind: 'text';
+  createdAt?: Timestampish;
 };
 
 type SeedContact = {
@@ -63,6 +70,10 @@ type SeedConversation = {
 
 const minute = 60 * 1000;
 const accentPalette = ['#4ed0a8', '#f8b35d', '#8db8ff', '#f28b82', '#b7a1ff'];
+const collections = {
+  profiles: 'messaging_profiles',
+  conversations: 'messaging_conversations',
+} as const;
 
 const seedContacts: SeedContact[] = [
   {
@@ -114,7 +125,7 @@ function makeViewer(viewerSession?: ViewerSession) {
 function buildSeedConversations(viewerId: string, viewerName: string): SeedConversation[] {
   return [
     {
-      id: '11111111-1111-4111-8111-111111111111',
+      id: `seed_${viewerId}_direct_sara`,
       type: 'direct',
       title: null,
       memberIds: [viewerId, 'contact-sara'],
@@ -146,7 +157,7 @@ function buildSeedConversations(viewerId: string, viewerName: string): SeedConve
       ],
     },
     {
-      id: '22222222-2222-4222-8222-222222222222',
+      id: `seed_${viewerId}_group_launch`,
       type: 'group',
       title: 'Launch Core',
       memberIds: [viewerId, 'contact-sara', 'contact-nina', 'contact-omar', 'contact-milan'],
@@ -172,7 +183,7 @@ function buildSeedConversations(viewerId: string, viewerName: string): SeedConve
       ],
     },
     {
-      id: '33333333-3333-4333-8333-333333333333',
+      id: `seed_${viewerId}_direct_milan`,
       type: 'direct',
       title: null,
       memberIds: [viewerId, 'contact-milan'],
@@ -186,13 +197,13 @@ function buildSeedConversations(viewerId: string, viewerName: string): SeedConve
         {
           senderId: viewerId,
           senderName: viewerName,
-          body: 'Yes. I am pairing that with PostgreSQL summaries for the chat list.',
+          body: 'Yes. I am pairing that with Firebase summaries for the chat list.',
           minutesAgo: 91,
         },
       ],
     },
     {
-      id: '44444444-4444-4444-8444-444444444444',
+      id: `seed_${viewerId}_group_ops`,
       type: 'group',
       title: 'Ops Bridge',
       memberIds: [viewerId, 'contact-ops', 'contact-omar', 'contact-nina'],
@@ -214,12 +225,43 @@ function buildSeedConversations(viewerId: string, viewerName: string): SeedConve
   ];
 }
 
-function toIso(value: string | Date | null | undefined): string | null {
+function slugify(input: string): string {
+  return (
+    input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '') || 'user'
+  );
+}
+
+function hasToDate(value: unknown): value is { toDate(): Date } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate: unknown }).toDate === 'function'
+  );
+}
+
+function toIso(value: Timestampish): string | null {
   if (!value) {
     return null;
   }
 
-  return value instanceof Date ? value.toISOString() : value;
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (hasToDate(value)) {
+    return value.toDate().toISOString();
+  }
+
+  return null;
 }
 
 function formatClock(iso: string): string {
@@ -304,231 +346,193 @@ function getDirectSubtitle(lastSeenAt: string | null): string {
   return `Last seen ${formatRelative(lastSeenAt)} ago`;
 }
 
-async function ensureStarterData(
-  sql: NonNullable<ReturnType<typeof getDatabaseClient>>,
-  viewerSession?: ViewerSession
-): Promise<void> {
+async function ensureStarterData(viewerSession?: ViewerSession): Promise<void> {
   const viewer = makeViewer(viewerSession);
 
-  await sql`
-    insert into app_users (id, username, display_name, about, last_seen_at)
-    values (${viewer.id}, ${viewer.handle.slice(1)}, ${viewer.displayName}, ${viewer.about}, now())
-    on conflict (id) do update
-    set display_name = excluded.display_name,
-        username = excluded.username,
-        about = excluded.about,
-        last_seen_at = now(),
-        updated_at = now()
-  `;
+  await adminDb.collection(collections.profiles).doc(viewer.id).set(
+    {
+      displayName: viewer.displayName,
+      username: slugify(viewer.displayName),
+      phoneLabel: viewer.phoneLabel,
+      about: viewer.about,
+      avatarLabel: viewer.avatarLabel,
+      lastSeenAt: new Date(),
+    } satisfies FirestoreProfile,
+    { merge: true }
+  );
 
-  const membershipCountRows = await sql<{ count: number }[]>`
-    select count(*)::int as count
-    from conversation_members
-    where user_id = ${viewer.id}
-  `;
+  const existingConversations = await adminDb
+    .collection(collections.conversations)
+    .where('participantIds', 'array-contains', viewer.id)
+    .limit(1)
+    .get();
 
-  if ((membershipCountRows[0]?.count || 0) > 0) {
+  if (!existingConversations.empty) {
     return;
   }
 
-  for (const contact of seedContacts) {
-    const lastSeenAt = new Date(Date.now() - contact.lastSeenMinutesAgo * minute).toISOString();
+  const batch = adminDb.batch();
 
-    await sql`
-      insert into app_users (id, phone_e164, username, display_name, about, last_seen_at)
-      values (
-        ${contact.id},
-        ${contact.phoneLabel},
-        ${contact.username},
-        ${contact.displayName},
-        ${contact.about},
-        ${lastSeenAt}
-      )
-      on conflict (id) do update
-      set display_name = excluded.display_name,
-          username = excluded.username,
-          about = excluded.about,
-          last_seen_at = excluded.last_seen_at,
-          updated_at = now()
-    `;
+  for (const contact of seedContacts) {
+    batch.set(
+      adminDb.collection(collections.profiles).doc(contact.id),
+      {
+        displayName: contact.displayName,
+        username: contact.username,
+        phoneLabel: contact.phoneLabel,
+        about: contact.about,
+        avatarLabel: deriveAvatarLabel(contact.displayName),
+        lastSeenAt: new Date(Date.now() - contact.lastSeenMinutesAgo * minute),
+      } satisfies FirestoreProfile,
+      { merge: true }
+    );
   }
 
   const conversations = buildSeedConversations(viewer.id, viewer.displayName);
 
   for (const conversation of conversations) {
-    await sql`
-      insert into conversations (id, type, title, created_by, created_at, updated_at)
-      values (
-        ${conversation.id}::uuid,
-        ${conversation.type},
-        ${conversation.title},
-        ${viewer.id},
-        now(),
-        now()
-      )
-      on conflict (id) do nothing
-    `;
+    const conversationRef = adminDb.collection(collections.conversations).doc(conversation.id);
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    const lastMessageAt = new Date(Date.now() - lastMessage.minutesAgo * minute);
 
-    for (const memberId of conversation.memberIds) {
-      await sql`
-        insert into conversation_members (conversation_id, user_id, role)
-        values (${conversation.id}::uuid, ${memberId}, 'member')
-        on conflict (conversation_id, user_id) do nothing
-      `;
-    }
+    batch.set(conversationRef, {
+      type: conversation.type,
+      title: conversation.title,
+      participantIds: conversation.memberIds,
+      memberCount: conversation.memberIds.length,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastMessageAt,
+      lastMessageText: lastMessage.body,
+      lastMessageSenderId: lastMessage.senderId,
+      lastMessageSenderName: lastMessage.senderName,
+    } satisfies FirestoreConversation);
 
-    let latestMessageId: string | null = null;
-    let latestCreatedAt: string | null = null;
-
-    for (let index = 0; index < conversation.messages.length; index += 1) {
-      const message = conversation.messages[index];
-      const createdAt = new Date(Date.now() - message.minutesAgo * minute).toISOString();
-      const clientId = `seed.${conversation.id}.${index}`;
-
-      const insertedRows = await sql<{ id: string }[]>`
-        insert into messages (
-          client_id,
-          conversation_id,
-          sender_user_id,
-          kind,
-          plaintext_preview,
-          created_at
-        )
-        values (
-          ${clientId},
-          ${conversation.id}::uuid,
-          ${message.senderId},
-          'text',
-          ${message.body},
-          ${createdAt}
-        )
-        on conflict (client_id) do update
-        set plaintext_preview = excluded.plaintext_preview
-        returning id::text as id
-      `;
-
-      latestMessageId = insertedRows[0]?.id || latestMessageId;
-      latestCreatedAt = createdAt;
-    }
-
-    if (latestMessageId && latestCreatedAt) {
-      await sql`
-        update conversations
-        set last_message_id = ${latestMessageId}::uuid,
-            last_message_at = ${latestCreatedAt},
-            updated_at = now()
-        where id = ${conversation.id}::uuid
-      `;
-    }
+    conversation.messages.forEach((message, index) => {
+      batch.set(conversationRef.collection('messages').doc(`seed-${index}`), {
+        clientId: `seed.${conversation.id}.${index}`,
+        senderId: message.senderId,
+        senderName: message.senderName,
+        body: message.body,
+        kind: 'text',
+        createdAt: new Date(Date.now() - message.minutesAgo * minute),
+      } satisfies FirestoreMessage);
+    });
   }
+
+  await batch.commit();
 }
 
-async function getDatabaseSnapshot(
-  sql: NonNullable<ReturnType<typeof getDatabaseClient>>,
-  viewerSession?: ViewerSession
-): Promise<MessagingSnapshot> {
+async function loadProfiles(profileIds: string[]): Promise<Record<string, FirestoreProfile>> {
+  if (profileIds.length === 0) {
+    return {};
+  }
+
+  const refs = profileIds.map((profileId) => adminDb.collection(collections.profiles).doc(profileId));
+  const snapshots = await adminDb.getAll(...refs);
+
+  return snapshots.reduce<Record<string, FirestoreProfile>>((accumulator, snapshot) => {
+    if (snapshot.exists) {
+      accumulator[snapshot.id] = snapshot.data() as FirestoreProfile;
+    }
+    return accumulator;
+  }, {});
+}
+
+async function loadConversationMessageDocs(conversationId: string): Promise<MessagingMessage[]> {
+  const snapshot = await adminDb
+    .collection(collections.conversations)
+    .doc(conversationId)
+    .collection('messages')
+    .orderBy('createdAt', 'asc')
+    .get();
+
+  return snapshot.docs.map((document) => {
+    const data = document.data() as FirestoreMessage;
+    const createdAt = toIso(data.createdAt) || new Date().toISOString();
+
+    return {
+      id: document.id,
+      clientId: data.clientId,
+      conversationId,
+      senderId: data.senderId,
+      senderName: data.senderName,
+      body: data.body,
+      kind: 'text',
+      createdAt,
+      createdAtLabel: formatClock(createdAt),
+      delivery: 'read',
+      direction: 'incoming',
+    } satisfies MessagingMessage;
+  });
+}
+
+async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<MessagingSnapshot> {
   const viewer = makeViewer(viewerSession);
 
-  await ensureStarterData(sql, viewerSession);
+  await ensureStarterData(viewerSession);
 
-  const conversationRows = await sql<ConversationRow[]>`
-    select
-      c.id::text as id,
-      c.type,
-      c.title,
-      c.created_at,
-      c.last_message_at,
-      count(all_members.user_id)::int as member_count
-    from conversations c
-    join conversation_members self_member
-      on self_member.conversation_id = c.id
-     and self_member.user_id = ${viewer.id}
-    join conversation_members all_members
-      on all_members.conversation_id = c.id
-    group by c.id, c.type, c.title, c.created_at, c.last_message_at
-    order by coalesce(c.last_message_at, c.created_at) desc
-  `;
+  const conversationSnapshot = await adminDb
+    .collection(collections.conversations)
+    .where('participantIds', 'array-contains', viewer.id)
+    .get();
 
-  if (conversationRows.length === 0) {
+  if (conversationSnapshot.empty) {
     return getMockMessagingSnapshot(viewerSession);
   }
 
-  const conversationIds = conversationRows.map((conversation) => conversation.id);
+  const conversationDocs = conversationSnapshot.docs
+    .map((document) => ({
+      id: document.id,
+      ...((document.data() as FirestoreConversation) || {}),
+    }))
+    .sort((left, right) => {
+      const leftIso = toIso(left.lastMessageAt || left.createdAt) || '';
+      const rightIso = toIso(right.lastMessageAt || right.createdAt) || '';
+      return rightIso.localeCompare(leftIso);
+    });
 
-  const memberRows = await sql<MemberRow[]>`
-    select
-      cm.conversation_id::text as conversation_id,
-      u.id as user_id,
-      u.display_name,
-      u.last_seen_at
-    from conversation_members cm
-    join app_users u on u.id = cm.user_id
-    where cm.conversation_id in ${sql(conversationIds)}
-  `;
+  const profileIds = [...new Set(conversationDocs.flatMap((conversation) => conversation.participantIds || []))];
+  const profiles = await loadProfiles(profileIds);
 
-  const messageRows = await sql<MessageRow[]>`
-    select
-      m.id::text as id,
-      m.client_id,
-      m.conversation_id::text as conversation_id,
-      m.sender_user_id,
-      u.display_name as sender_name,
-      coalesce(m.plaintext_preview, '') as body,
-      m.created_at
-    from messages m
-    join app_users u on u.id = m.sender_user_id
-    where m.conversation_id in ${sql(conversationIds)}
-      and m.deleted_at is null
-    order by m.created_at asc
-  `;
+  const messagesByConversationEntries = await Promise.all(
+    conversationDocs.map(async (conversation) => {
+      const messages = await loadConversationMessageDocs(conversation.id);
 
-  const membersByConversation = memberRows.reduce<Record<string, MemberRow[]>>((accumulator, row) => {
-    accumulator[row.conversation_id] = [...(accumulator[row.conversation_id] || []), row];
-    return accumulator;
-  }, {});
+      return [
+        conversation.id,
+        messages.map(
+          (message) =>
+            ({
+              ...message,
+              direction: message.senderId === viewer.id ? 'outgoing' : 'incoming',
+              delivery: message.senderId === viewer.id ? 'delivered' : 'read',
+            }) satisfies MessagingMessage
+        ),
+      ] as const;
+    })
+  );
 
-  const messagesByConversationRows = messageRows.reduce<Record<string, MessageRow[]>>((accumulator, row) => {
-    accumulator[row.conversation_id] = [...(accumulator[row.conversation_id] || []), row];
-    return accumulator;
-  }, {});
-
-  const messagesByConversation = conversationRows.reduce<Record<string, MessagingMessage[]>>(
-    (accumulator, conversation) => {
-      const rows = messagesByConversationRows[conversation.id] || [];
-
-      accumulator[conversation.id] = rows.map((message) => {
-        const createdAt = toIso(message.created_at) || new Date().toISOString();
-        const isViewer = message.sender_user_id === viewer.id;
-
-        return {
-          id: message.id,
-          clientId: message.client_id,
-          conversationId: message.conversation_id,
-          senderId: message.sender_user_id,
-          senderName: message.sender_name,
-          body: message.body || '',
-          kind: 'text',
-          createdAt,
-          createdAtLabel: formatClock(createdAt),
-          delivery: isViewer ? 'delivered' : 'read',
-          direction: isViewer ? 'outgoing' : 'incoming',
-        };
-      });
-
+  const messagesByConversation = messagesByConversationEntries.reduce<Record<string, MessagingMessage[]>>(
+    (accumulator, [conversationId, messages]) => {
+      accumulator[conversationId] = messages;
       return accumulator;
     },
     {}
   );
 
-  const conversations = conversationRows.map((conversation) => {
-    const members = membersByConversation[conversation.id] || [];
-    const otherMember = members.find((member) => member.user_id !== viewer.id);
-    const latestMessage = messagesByConversation[conversation.id]?.slice(-1)[0];
-    const otherLastSeen = toIso(otherMember?.last_seen_at || null);
+  const conversations = conversationDocs.map((conversation) => {
+    const participantIds = conversation.participantIds || [];
+    const otherProfile = participantIds
+      .filter((participantId) => participantId !== viewer.id)
+      .map((participantId) => profiles[participantId])
+      .find(Boolean);
     const title =
       conversation.type === 'direct'
-        ? otherMember?.display_name || conversation.title || 'Direct chat'
+        ? otherProfile?.displayName || conversation.title || 'Direct chat'
         : conversation.title || 'Group chat';
+    const otherLastSeen = toIso(otherProfile?.lastSeenAt);
+    const latestMessage = messagesByConversation[conversation.id]?.slice(-1)[0];
 
     return {
       id: conversation.id,
@@ -537,16 +541,16 @@ async function getDatabaseSnapshot(
       subtitle:
         conversation.type === 'direct'
           ? getDirectSubtitle(otherLastSeen)
-          : `${conversation.member_count} members`,
+          : `${conversation.memberCount} members`,
       avatarLabel: deriveAvatarLabel(title),
       accent: getAccent(conversation.id),
       unreadCount: 0,
-      memberCount: conversation.member_count,
+      memberCount: conversation.memberCount,
       lastMessagePreview: latestMessage
         ? latestMessage.direction === 'outgoing'
           ? `You: ${latestMessage.body}`
           : `${latestMessage.senderName}: ${latestMessage.body}`
-        : 'No messages yet',
+        : conversation.lastMessageText || 'No messages yet',
       lastActivityLabel: latestMessage ? formatRelative(latestMessage.createdAt) : 'now',
       presence: conversation.type === 'direct' ? getPresenceState(otherLastSeen) : 'online',
     } satisfies ConversationSummary;
@@ -559,103 +563,9 @@ async function getDatabaseSnapshot(
   };
 }
 
-async function insertDatabaseMessage(
-  sql: NonNullable<ReturnType<typeof getDatabaseClient>>,
-  input: SendMessageInput,
-  viewerSession?: ViewerSession
-): Promise<{ message: MessagingMessage; conversations: ConversationSummary[] } | null> {
-  const viewer = makeViewer(viewerSession);
-
-  await ensureStarterData(sql, viewerSession);
-
-  const membershipRows = await sql<{ exists: boolean }[]>`
-    select true as exists
-    from conversation_members
-    where conversation_id = ${input.conversationId}::uuid
-      and user_id = ${viewer.id}
-    limit 1
-  `;
-
-  if (!membershipRows[0]?.exists) {
-    return null;
-  }
-
-  const trimmedBody = input.body.trim();
-  if (!trimmedBody) {
-    return null;
-  }
-
-  const clientId = `live.${crypto.randomUUID()}`;
-  const insertedRows = await sql<MessageRow[]>`
-    insert into messages (
-      client_id,
-      conversation_id,
-      sender_user_id,
-      kind,
-      plaintext_preview,
-      created_at
-    )
-    values (
-      ${clientId},
-      ${input.conversationId}::uuid,
-      ${viewer.id},
-      'text',
-      ${trimmedBody},
-      now()
-    )
-    returning
-      id::text as id,
-      client_id,
-      conversation_id::text as conversation_id,
-      sender_user_id,
-      ${viewer.displayName} as sender_name,
-      plaintext_preview as body,
-      created_at
-  `;
-
-  const inserted = insertedRows[0];
-  if (!inserted) {
-    return null;
-  }
-
-  await sql`
-    update conversations
-    set last_message_id = ${inserted.id}::uuid,
-        last_message_at = ${toIso(inserted.created_at)},
-        updated_at = now()
-    where id = ${inserted.conversation_id}::uuid
-  `;
-
-  const snapshot = await getDatabaseSnapshot(sql, viewerSession);
-  const createdAt = toIso(inserted.created_at) || new Date().toISOString();
-
-  return {
-    message: {
-      id: inserted.id,
-      clientId: inserted.client_id,
-      conversationId: inserted.conversation_id,
-      senderId: viewer.id,
-      senderName: viewer.displayName,
-      body: inserted.body || '',
-      kind: 'text',
-      createdAt,
-      createdAtLabel: formatClock(createdAt),
-      delivery: 'delivered',
-      direction: 'outgoing',
-    },
-    conversations: snapshot.conversations,
-  };
-}
-
 export async function loadMessagingSnapshot(viewerSession?: ViewerSession): Promise<MessagingSnapshot> {
-  const sql = getDatabaseClient();
-
-  if (!sql) {
-    return getMockMessagingSnapshot(viewerSession);
-  }
-
   try {
-    return await getDatabaseSnapshot(sql, viewerSession);
+    return await getFirestoreSnapshot(viewerSession);
   } catch (error) {
     console.error('[messaging-store] snapshot fallback:', error);
     return getMockMessagingSnapshot(viewerSession);
@@ -666,14 +576,8 @@ export async function loadConversationMessages(
   conversationId: string,
   viewerSession?: ViewerSession
 ): Promise<MessagingMessage[] | null> {
-  const sql = getDatabaseClient();
-
-  if (!sql) {
-    return getMockConversationMessages(conversationId, viewerSession);
-  }
-
   try {
-    const snapshot = await getDatabaseSnapshot(sql, viewerSession);
+    const snapshot = await getFirestoreSnapshot(viewerSession);
     return snapshot.messagesByConversation[conversationId] || null;
   } catch (error) {
     console.error('[messaging-store] messages fallback:', error);
@@ -685,14 +589,85 @@ export async function createMessage(
   input: SendMessageInput,
   viewerSession?: ViewerSession
 ): Promise<{ message: MessagingMessage; conversations: ConversationSummary[] } | null> {
-  const sql = getDatabaseClient();
+  const viewer = makeViewer(viewerSession);
+  const trimmedBody = input.body.trim();
 
-  if (!sql) {
-    return appendMockMessage(input, viewerSession);
+  if (!trimmedBody) {
+    return null;
   }
 
   try {
-    return await insertDatabaseMessage(sql, input, viewerSession);
+    await ensureStarterData(viewerSession);
+
+    const conversationRef = adminDb.collection(collections.conversations).doc(input.conversationId);
+    const messageRef = conversationRef.collection('messages').doc();
+    const createdAt = new Date();
+
+    await adminDb.runTransaction(async (transaction) => {
+      const conversationSnapshot = await transaction.get(conversationRef);
+
+      if (!conversationSnapshot.exists) {
+        throw new Error('conversation_not_found');
+      }
+
+      const conversation = conversationSnapshot.data() as FirestoreConversation;
+      if (!(conversation.participantIds || []).includes(viewer.id)) {
+        throw new Error('conversation_forbidden');
+      }
+
+      transaction.set(messageRef, {
+        clientId: `live.${messageRef.id}`,
+        senderId: viewer.id,
+        senderName: viewer.displayName,
+        body: trimmedBody,
+        kind: 'text',
+        createdAt,
+      } satisfies FirestoreMessage);
+
+      transaction.set(
+        conversationRef,
+        {
+          updatedAt: createdAt,
+          lastMessageAt: createdAt,
+          lastMessageText: trimmedBody,
+          lastMessageSenderId: viewer.id,
+          lastMessageSenderName: viewer.displayName,
+        } satisfies Partial<FirestoreConversation>,
+        { merge: true }
+      );
+
+      transaction.set(
+        adminDb.collection(collections.profiles).doc(viewer.id),
+        {
+          displayName: viewer.displayName,
+          username: slugify(viewer.displayName),
+          phoneLabel: viewer.phoneLabel,
+          about: viewer.about,
+          avatarLabel: viewer.avatarLabel,
+          lastSeenAt: createdAt,
+        } satisfies FirestoreProfile,
+        { merge: true }
+      );
+    });
+
+    const snapshot = await getFirestoreSnapshot(viewerSession);
+
+    return {
+      message: {
+        id: messageRef.id,
+        clientId: `live.${messageRef.id}`,
+        conversationId: input.conversationId,
+        senderId: viewer.id,
+        senderName: viewer.displayName,
+        body: trimmedBody,
+        kind: 'text',
+        createdAt: createdAt.toISOString(),
+        createdAtLabel: formatClock(createdAt.toISOString()),
+        delivery: 'delivered',
+        direction: 'outgoing',
+      },
+      conversations: snapshot.conversations,
+    };
   } catch (error) {
     console.error('[messaging-store] message fallback:', error);
     return appendMockMessage(input, viewerSession);

@@ -36,10 +36,38 @@ The full technical blueprint lives here:
 
 ## New Messaging Config
 
+The rebuilt messaging app now uses Firebase as the primary backend.
+
+Required:
+
+- `AUTH_SECRET`
+- `NEXTAUTH_URL`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+
+Optional:
+
 - `DATABASE_URL`
 
-When `DATABASE_URL` is present, the new `/api/v1` messaging routes and dashboard use PostgreSQL-backed reads and writes.
-Without it, the app falls back to the seeded in-memory store so the rebuild remains usable during setup.
+`DATABASE_URL` is no longer required for this build. It is only relevant if you later want to add or restore a PostgreSQL-backed messaging layer.
+
+## Config Checklist
+
+Use the committed example file as the template:
+
+- `.env.example`
+
+Validate your local environment:
+
+```bash
+npm run env:check
+```
+
+Important:
+
+- Firebase admin credentials are required because the app now uses Firebase for both the current login flow and the new messaging store.
+- If `DATABASE_URL` is set, it must be PostgreSQL, not MySQL.
 
 ## Development
 
