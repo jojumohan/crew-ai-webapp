@@ -9,7 +9,9 @@ type MessageBody = {
 
 export async function POST(request: Request) {
   const session = await auth();
-  const user = session?.user as { id?: string; name?: string | null } | undefined;
+  const user = session?.user as
+    | { id?: string; name?: string | null; email?: string | null; role?: string | null }
+    | undefined;
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -29,6 +31,8 @@ export async function POST(request: Request) {
     {
       id: user.id,
       name: user.name,
+      email: user.email,
+      role: user.role,
     }
   );
 

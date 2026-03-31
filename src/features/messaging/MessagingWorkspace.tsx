@@ -1,13 +1,37 @@
 'use client';
 
-import { useDeferredValue, useState, useTransition } from 'react';
+import { useDeferredValue, useEffect, useState, useTransition } from 'react';
 import { signOut } from 'next-auth/react';
 import styles from './MessagingWorkspace.module.css';
-import type { ConversationSummary, MessagingMessage, MessagingSnapshot } from './types';
+import type {
+  ConversationSummary,
+  MessagingMessage,
+  MessagingSnapshot,
+  WorkspaceMember,
+} from './types';
 
 type MessageCreateResponse = {
   message: MessagingMessage;
   conversations: ConversationSummary[];
+};
+
+type ConversationCreateResponse = {
+  conversationId: string;
+  snapshot: MessagingSnapshot;
+};
+
+type TeamApiMember = {
+  id: string;
+  username?: string;
+  display_name?: string;
+  email?: string | null;
+  role?: string;
+  status?: 'active' | 'pending' | string;
+  created_at?: string;
+};
+
+type TeamApiResponse = {
+  users: TeamApiMember[];
 };
 
 function formatClock(iso: string): string {
@@ -15,6 +39,58 @@ function formatClock(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(iso));
+}
+
+function formatCreatedAtLabel(iso?: string): string {
+  if (!iso) {
+    return 'Recently';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(iso));
+}
+
+function deriveAvatarLabel(title: string): string {
+  const words = title
+    .split(' ')
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return 'TM';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function mapTeamMembers(users: TeamApiMember[]) {
+  const members = users.map((user) => {
+    const displayName = user.display_name?.trim() || user.username?.trim() || 'Team member';
+    const status = user.status === 'pending' ? 'pending' : 'active';
+
+    return {
+      id: user.id,
+      username: user.username || 'member',
+      displayName,
+      email: user.email || null,
+      role: user.role || 'staff',
+      status,
+      avatarLabel: deriveAvatarLabel(displayName),
+      createdAtLabel: formatCreatedAtLabel(user.created_at),
+    } satisfies WorkspaceMember;
+  });
+
+  return {
+    members: members.filter((member) => member.status === 'active'),
+    pendingMembers: members.filter((member) => member.status === 'pending'),
+  };
 }
 
 function reorderConversations(
@@ -116,8 +192,36 @@ export default function MessagingWorkspace({
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [memberNotice, setMemberNotice] = useState('');
+  const [memberError, setMemberError] = useState('');
+  const [newMember, setNewMember] = useState({
+    display_name: '',
+    username: '',
+    email: '',
+    password: '',
+    role: 'staff',
+  });
   const [isPending, startTransition] = useTransition();
+  const [isMemberPending, startMemberTransition] = useTransition();
   const deferredSearch = useDeferredValue(search);
+  const canManageMembers = snapshot.viewer.role === 'admin';
+
+  useEffect(() => {
+    if (snapshot.conversations.length === 0) {
+      if (selectedConversationId) {
+        setSelectedConversationId('');
+      }
+      return;
+    }
+
+    const exists = snapshot.conversations.some(
+      (conversation) => conversation.id === selectedConversationId
+    );
+
+    if (!exists) {
+      setSelectedConversationId(snapshot.conversations[0].id);
+    }
+  }, [selectedConversationId, snapshot.conversations]);
 
   const normalizedQuery = deferredSearch.trim().toLowerCase();
   const filteredConversations = normalizedQuery
@@ -135,6 +239,24 @@ export default function MessagingWorkspace({
   const visibleMessages = activeConversation
     ? snapshot.messagesByConversation[activeConversation.id] || []
     : [];
+  const otherMembers = snapshot.members.filter((member) => member.id !== snapshot.viewer.id);
+
+  async function refreshMembers() {
+    const response = await fetch('/api/team', { cache: 'no-store' });
+
+    if (!response.ok) {
+      throw new Error('member_refresh_failed');
+    }
+
+    const payload = (await response.json()) as TeamApiResponse;
+    const team = mapTeamMembers(payload.users);
+
+    setSnapshot((current) => ({
+      ...current,
+      members: team.members,
+      pendingMembers: team.pendingMembers,
+    }));
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -200,6 +322,127 @@ export default function MessagingWorkspace({
     });
   }
 
+  function handleMemberFieldChange(
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) {
+    const { name, value } = event.target;
+
+    setNewMember((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function handleCreateMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMemberError('');
+    setMemberNotice('');
+
+    startMemberTransition(() => {
+      void (async () => {
+        try {
+          const response = await fetch('/api/team', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(newMember),
+          });
+
+          const payload = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(payload.error || 'member_create_failed');
+          }
+
+          await refreshMembers();
+          setNewMember({
+            display_name: '',
+            username: '',
+            email: '',
+            password: '',
+            role: 'staff',
+          });
+          setMemberNotice('New member added. They can sign in right away.');
+        } catch (cause) {
+          setMemberError(
+            cause instanceof Error ? cause.message : 'New member could not be added right now.'
+          );
+        }
+      })();
+    });
+  }
+
+  function handleApproval(memberId: string, action: 'approve' | 'reject') {
+    setMemberError('');
+    setMemberNotice('');
+
+    startMemberTransition(() => {
+      void (async () => {
+        try {
+          const response = await fetch('/api/team/approve', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              id: memberId,
+              action,
+            }),
+          });
+
+          const payload = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(payload.error || 'member_update_failed');
+          }
+
+          await refreshMembers();
+          setMemberNotice(action === 'approve' ? 'Member approved.' : 'Pending request removed.');
+        } catch (cause) {
+          setMemberError(
+            cause instanceof Error ? cause.message : 'Member status could not be updated right now.'
+          );
+        }
+      })();
+    });
+  }
+
+  function handleStartConversation(memberId: string) {
+    setError('');
+    setMemberError('');
+    setMemberNotice('');
+
+    startMemberTransition(() => {
+      void (async () => {
+        try {
+          const response = await fetch('/api/v1/conversations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              memberId,
+            }),
+          });
+
+          const payload = (await response.json()) as ConversationCreateResponse & { error?: string };
+
+          if (!response.ok) {
+            throw new Error(payload.error || 'conversation_create_failed');
+          }
+
+          setSnapshot(payload.snapshot);
+          setSelectedConversationId(payload.conversationId);
+        } catch (cause) {
+          setMemberError(
+            cause instanceof Error ? cause.message : 'Conversation could not be opened right now.'
+          );
+        }
+      })();
+    });
+  }
+
   return (
     <div className={styles.workspace}>
       <aside className={styles.rail}>
@@ -207,7 +450,7 @@ export default function MessagingWorkspace({
           <span className={styles.brandMark}>{snapshot.viewer.avatarLabel}</span>
           <div>
             <p className={styles.brandEyebrow}>Messaging rebuild</p>
-            <h1 className={styles.brandTitle}>Phase 1</h1>
+            <h1 className={styles.brandTitle}>Real members only</h1>
           </div>
         </div>
 
@@ -217,16 +460,16 @@ export default function MessagingWorkspace({
             <small>Live</small>
           </button>
           <button type="button" className={styles.railAction}>
+            <span>Members</span>
+            <small>{snapshot.members.length}</small>
+          </button>
+          <button type="button" className={styles.railAction}>
             <span>Calls</span>
             <small>Soon</small>
           </button>
           <button type="button" className={styles.railAction}>
             <span>Media</span>
             <small>Phase 1</small>
-          </button>
-          <button type="button" className={styles.railAction}>
-            <span>Devices</span>
-            <small>Roadmap</small>
           </button>
         </nav>
 
@@ -245,7 +488,7 @@ export default function MessagingWorkspace({
           <div>
             <h2>{snapshot.viewer.displayName}</h2>
             <p>
-              {snapshot.viewer.handle} | {snapshot.viewer.phoneLabel}
+              {snapshot.viewer.handle} | {snapshot.viewer.role}
             </p>
           </div>
         </div>
@@ -257,7 +500,7 @@ export default function MessagingWorkspace({
           <input
             id="chat-search"
             className={styles.searchInput}
-            placeholder="Search by name, team, or message"
+            placeholder="Search by name, member, or message"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -266,44 +509,51 @@ export default function MessagingWorkspace({
         <div className={styles.sectionHeader}>
           <div>
             <p className={styles.sectionEyebrow}>Inbox</p>
-            <h3>{snapshot.conversations.length} active threads</h3>
+            <h3>{snapshot.conversations.length} real threads</h3>
           </div>
-          <span className={styles.statusPill}>Socket-ready</span>
+          <span className={styles.statusPill}>Firestore live</span>
         </div>
 
         <div className={styles.conversationList}>
-          {filteredConversations.map((conversation) => {
-            const isActive = conversation.id === activeConversation?.id;
+          {filteredConversations.length > 0 ? (
+            filteredConversations.map((conversation) => {
+              const isActive = conversation.id === activeConversation?.id;
 
-            return (
-              <button
-                key={conversation.id}
-                type="button"
-                className={isActive ? styles.conversationActive : styles.conversation}
-                onClick={() => setSelectedConversationId(conversation.id)}
-              >
-                <span
-                  className={styles.conversationAvatar}
-                  style={{ backgroundColor: conversation.accent }}
+              return (
+                <button
+                  key={conversation.id}
+                  type="button"
+                  className={isActive ? styles.conversationActive : styles.conversation}
+                  onClick={() => setSelectedConversationId(conversation.id)}
                 >
-                  {conversation.avatarLabel}
-                </span>
-                <div className={styles.conversationMeta}>
-                  <div className={styles.conversationRow}>
-                    <strong>{conversation.title}</strong>
-                    <span>{conversation.lastActivityLabel}</span>
+                  <span
+                    className={styles.conversationAvatar}
+                    style={{ backgroundColor: conversation.accent }}
+                  >
+                    {conversation.avatarLabel}
+                  </span>
+                  <div className={styles.conversationMeta}>
+                    <div className={styles.conversationRow}>
+                      <strong>{conversation.title}</strong>
+                      <span>{conversation.lastActivityLabel}</span>
+                    </div>
+                    <p>{conversation.typingLabel || conversation.lastMessagePreview}</p>
+                    <div className={styles.conversationFooter}>
+                      <span>{conversation.subtitle}</span>
+                      {conversation.unreadCount > 0 ? (
+                        <span className={styles.unreadBadge}>{conversation.unreadCount}</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <p>{conversation.typingLabel || conversation.lastMessagePreview}</p>
-                  <div className={styles.conversationFooter}>
-                    <span>{conversation.subtitle}</span>
-                    {conversation.unreadCount > 0 ? (
-                      <span className={styles.unreadBadge}>{conversation.unreadCount}</span>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          ) : (
+            <div className={styles.emptyListCard}>
+              <h4>No real chats yet</h4>
+              <p>Add or approve a real member, then start a direct conversation from the right panel.</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -332,23 +582,30 @@ export default function MessagingWorkspace({
             </header>
 
             <div className={styles.messageStream}>
-              {visibleMessages.map((message) => (
-                <article
-                  key={message.id}
-                  className={message.direction === 'outgoing' ? styles.outgoing : styles.incoming}
-                >
-                  <div className={styles.messageBubble}>
-                    {message.direction === 'incoming' ? (
-                      <p className={styles.messageSender}>{message.senderName}</p>
-                    ) : null}
-                    <p className={styles.messageBody}>{message.body}</p>
-                    <div className={styles.messageMeta}>
-                      <span>{message.createdAtLabel}</span>
-                      <span>{message.delivery}</span>
+              {visibleMessages.length > 0 ? (
+                visibleMessages.map((message) => (
+                  <article
+                    key={message.id}
+                    className={message.direction === 'outgoing' ? styles.outgoing : styles.incoming}
+                  >
+                    <div className={styles.messageBubble}>
+                      {message.direction === 'incoming' ? (
+                        <p className={styles.messageSender}>{message.senderName}</p>
+                      ) : null}
+                      <p className={styles.messageBody}>{message.body}</p>
+                      <div className={styles.messageMeta}>
+                        <span>{message.createdAtLabel}</span>
+                        <span>{message.delivery}</span>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))
+              ) : (
+                <div className={styles.emptyThread}>
+                  <h3>No messages yet</h3>
+                  <p>This thread is ready. Send the first message when you are ready to test.</p>
+                </div>
+              )}
             </div>
 
             <form className={styles.composer} onSubmit={handleSubmit}>
@@ -368,8 +625,11 @@ export default function MessagingWorkspace({
           </>
         ) : (
           <div className={styles.emptyState}>
-            <h2>No conversation selected</h2>
-            <p>Choose a thread from the inbox to start testing the new workspace.</p>
+            <h2>Only connected accounts can chat here</h2>
+            <p>
+              The demo accounts are gone. Add or approve a real member, then start a direct chat
+              from the member panel.
+            </p>
           </div>
         )}
       </section>
@@ -377,40 +637,172 @@ export default function MessagingWorkspace({
       <aside className={styles.detailColumn}>
         <div className={styles.detailCard}>
           <p className={styles.sectionEyebrow}>Build status</p>
-          <h3>Phase 1 foundation</h3>
+          <h3>Real account workspace</h3>
           <p>
-            This workspace is now aligned to the new product model: direct chat, group chat,
-            uploads, and real-time presence before calls.
+            The inbox now stays empty until a real approved member exists. Demo conversations and
+            seed contacts are blocked from the UI and cleaned up from the messaging store.
           </p>
           <div className={styles.stackList}>
             <span>Next.js 16</span>
-            <span>Socket.IO</span>
-            <span>PostgreSQL</span>
-            <span>Redis</span>
-            <span>LiveKit</span>
+            <span>NextAuth</span>
+            <span>Firebase</span>
+            <span>Firestore</span>
+            <span>Real members</span>
           </div>
         </div>
 
         <div className={styles.detailCard}>
-          <p className={styles.sectionEyebrow}>Current thread</p>
-          <h3>{activeConversation?.title || 'Inbox'}</h3>
-          <ul className={styles.detailList}>
-            <li>Type: {activeConversation?.type || 'direct'}</li>
-            <li>Members: {activeConversation?.memberCount || 0}</li>
-            <li>Presence: {activeConversation?.presence || 'offline'}</li>
-            <li>Unread: {activeConversation?.unreadCount || 0}</li>
-          </ul>
+          <div className={styles.detailHeader}>
+            <div>
+              <p className={styles.sectionEyebrow}>Members</p>
+              <h3>{snapshot.members.length} active accounts</h3>
+            </div>
+            {snapshot.pendingMembers.length > 0 ? (
+              <span className={styles.pendingBadge}>{snapshot.pendingMembers.length} pending</span>
+            ) : null}
+          </div>
+
+          <div className={styles.memberList}>
+            {otherMembers.length > 0 ? (
+              otherMembers.map((member) => (
+                <div key={member.id} className={styles.memberCard}>
+                  <div className={styles.memberMeta}>
+                    <span className={styles.memberAvatar}>{member.avatarLabel}</span>
+                    <div>
+                      <strong>{member.displayName}</strong>
+                      <p>
+                        @{member.username} | {member.role}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.memberAction}
+                    onClick={() => handleStartConversation(member.id)}
+                    disabled={isMemberPending}
+                  >
+                    Start chat
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className={styles.infoBox}>
+                <strong>No other approved members yet</strong>
+                <p>
+                  {canManageMembers
+                    ? 'Create one below or approve a pending request to open the first real chat.'
+                    : 'Ask an admin to create or approve another account before testing chat.'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className={styles.detailCard}>
-          <p className={styles.sectionEyebrow}>Next delivery slice</p>
-          <h3>Database and transport</h3>
-          <ul className={styles.detailList}>
-            <li>Wire these contracts to PostgreSQL tables.</li>
-            <li>Move message send from mock store to durable API writes.</li>
-            <li>Add Redis-backed presence and typing events.</li>
-          </ul>
-        </div>
+        {canManageMembers ? (
+          <div className={styles.detailCard}>
+            <p className={styles.sectionEyebrow}>Add member</p>
+            <h3>Create a real account</h3>
+            <form className={styles.memberForm} onSubmit={handleCreateMember}>
+              <input
+                name="display_name"
+                className={styles.memberInput}
+                placeholder="Full name"
+                value={newMember.display_name}
+                onChange={handleMemberFieldChange}
+                required
+              />
+              <input
+                name="username"
+                className={styles.memberInput}
+                placeholder="Username"
+                value={newMember.username}
+                onChange={handleMemberFieldChange}
+                required
+              />
+              <input
+                name="email"
+                className={styles.memberInput}
+                placeholder="Email"
+                type="email"
+                value={newMember.email}
+                onChange={handleMemberFieldChange}
+              />
+              <input
+                name="password"
+                className={styles.memberInput}
+                placeholder="Temporary password"
+                type="password"
+                value={newMember.password}
+                onChange={handleMemberFieldChange}
+                required
+                minLength={6}
+              />
+              <select
+                name="role"
+                className={styles.memberInput}
+                value={newMember.role}
+                onChange={handleMemberFieldChange}
+              >
+                <option value="staff">Staff</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button type="submit" className={styles.memberPrimaryAction} disabled={isMemberPending}>
+                {isMemberPending ? 'Saving...' : 'Add member'}
+              </button>
+            </form>
+
+            {snapshot.pendingMembers.length > 0 ? (
+              <div className={styles.pendingList}>
+                {snapshot.pendingMembers.map((member) => (
+                  <div key={member.id} className={styles.pendingCard}>
+                    <div>
+                      <strong>{member.displayName}</strong>
+                      <p>
+                        @{member.username} | requested {member.createdAtLabel}
+                      </p>
+                    </div>
+                    <div className={styles.pendingActions}>
+                      <button
+                        type="button"
+                        className={styles.memberApprove}
+                        onClick={() => handleApproval(member.id, 'approve')}
+                        disabled={isMemberPending}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.memberReject}
+                        onClick={() => handleApproval(member.id, 'reject')}
+                        disabled={isMemberPending}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.infoBox}>
+                <strong>No pending requests</strong>
+                <p>Anyone who signs up at `/register` will appear here for approval.</p>
+              </div>
+            )}
+
+            {memberNotice ? <p className={styles.success}>{memberNotice}</p> : null}
+            {memberError ? <p className={styles.error}>{memberError}</p> : null}
+          </div>
+        ) : (
+          <div className={styles.detailCard}>
+            <p className={styles.sectionEyebrow}>New members</p>
+            <h3>How to add people</h3>
+            <ul className={styles.detailList}>
+              <li>Admins can create members directly from this dashboard.</li>
+              <li>Anyone else can request access at `/register`.</li>
+              <li>Pending requests need admin approval before login works.</li>
+            </ul>
+          </div>
+        )}
       </aside>
     </div>
   );

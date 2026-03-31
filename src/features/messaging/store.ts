@@ -11,6 +11,7 @@ import type {
   PresenceState,
   SendMessageInput,
   ViewerSession,
+  WorkspaceMember,
 } from './types';
 
 type Timestampish = Date | string | null | undefined | { toDate(): Date };
@@ -46,26 +47,20 @@ type FirestoreMessage = {
   createdAt?: Timestampish;
 };
 
-type SeedContact = {
-  id: string;
-  displayName: string;
-  username: string;
-  phoneLabel: string;
-  about: string;
-  lastSeenMinutesAgo: number;
+type FirestoreUser = {
+  username?: string;
+  display_name?: string;
+  email?: string | null;
+  role?: string;
+  status?: 'active' | 'pending' | string;
+  created_at?: Timestampish;
 };
 
-type SeedConversation = {
-  id: string;
-  type: 'direct' | 'group';
-  title: string | null;
-  memberIds: string[];
-  messages: Array<{
-    senderId: string;
-    senderName: string;
-    body: string;
-    minutesAgo: number;
-  }>;
+type TeamDirectory = {
+  activeMembers: WorkspaceMember[];
+  pendingMembers: WorkspaceMember[];
+  memberById: Record<string, WorkspaceMember>;
+  userById: Record<string, FirestoreUser>;
 };
 
 const minute = 60 * 1000;
@@ -74,156 +69,7 @@ const collections = {
   profiles: 'messaging_profiles',
   conversations: 'messaging_conversations',
 } as const;
-
-const seedContacts: SeedContact[] = [
-  {
-    id: 'contact-sara',
-    displayName: 'Sara Khan',
-    username: 'sara.khan',
-    phoneLabel: '+91 90000 10001',
-    about: 'Product designer for the rebuild.',
-    lastSeenMinutesAgo: 2,
-  },
-  {
-    id: 'contact-milan',
-    displayName: 'Milan Patel',
-    username: 'milan.patel',
-    phoneLabel: '+91 90000 10002',
-    about: 'Backend engineer focused on data modeling.',
-    lastSeenMinutesAgo: 18,
-  },
-  {
-    id: 'contact-nina',
-    displayName: 'Nina Roy',
-    username: 'nina.roy',
-    phoneLabel: '+91 90000 10003',
-    about: 'Program lead for launch readiness.',
-    lastSeenMinutesAgo: 9,
-  },
-  {
-    id: 'contact-omar',
-    displayName: 'Omar Lee',
-    username: 'omar.lee',
-    phoneLabel: '+91 90000 10004',
-    about: 'Infra engineer handling delivery and queue design.',
-    lastSeenMinutesAgo: 7,
-  },
-  {
-    id: 'contact-ops',
-    displayName: 'Ops Bot',
-    username: 'ops.bot',
-    phoneLabel: '+91 bot bridge',
-    about: 'Operations status assistant.',
-    lastSeenMinutesAgo: 4,
-  },
-];
-
-function makeViewer(viewerSession?: ViewerSession) {
-  return getMockMessagingSnapshot(viewerSession).viewer;
-}
-
-function buildSeedConversations(viewerId: string, viewerName: string): SeedConversation[] {
-  return [
-    {
-      id: `seed_${viewerId}_direct_sara`,
-      type: 'direct',
-      title: null,
-      memberIds: [viewerId, 'contact-sara'],
-      messages: [
-        {
-          senderId: 'contact-sara',
-          senderName: 'Sara Khan',
-          body: 'I reviewed the brief. We should keep the web app fast and chat-first.',
-          minutesAgo: 22,
-        },
-        {
-          senderId: viewerId,
-          senderName: viewerName,
-          body: 'Agreed. Phase 1 is auth, 1-on-1 chat, uploads, and presence.',
-          minutesAgo: 18,
-        },
-        {
-          senderId: 'contact-sara',
-          senderName: 'Sara Khan',
-          body: 'I can prepare the UI states for unread, typing, and call entry.',
-          minutesAgo: 11,
-        },
-        {
-          senderId: viewerId,
-          senderName: viewerName,
-          body: 'Perfect. I am replacing the dashboard shell with a messaging workspace now.',
-          minutesAgo: 4,
-        },
-      ],
-    },
-    {
-      id: `seed_${viewerId}_group_launch`,
-      type: 'group',
-      title: 'Launch Core',
-      memberIds: [viewerId, 'contact-sara', 'contact-nina', 'contact-omar', 'contact-milan'],
-      messages: [
-        {
-          senderId: 'contact-nina',
-          senderName: 'Nina Roy',
-          body: 'Roadmap is aligned: MVP, group features, then calls.',
-          minutesAgo: 59,
-        },
-        {
-          senderId: viewerId,
-          senderName: viewerName,
-          body: 'I am keeping env and deployment config, but the product surface is being rebuilt.',
-          minutesAgo: 45,
-        },
-        {
-          senderId: 'contact-omar',
-          senderName: 'Omar Lee',
-          body: 'We should add Redis before presence so the contracts stay stable.',
-          minutesAgo: 17,
-        },
-      ],
-    },
-    {
-      id: `seed_${viewerId}_direct_milan`,
-      type: 'direct',
-      title: null,
-      memberIds: [viewerId, 'contact-milan'],
-      messages: [
-        {
-          senderId: 'contact-milan',
-          senderName: 'Milan Patel',
-          body: 'For message history, cursor pagination is the right move.',
-          minutesAgo: 95,
-        },
-        {
-          senderId: viewerId,
-          senderName: viewerName,
-          body: 'Yes. I am pairing that with Firebase summaries for the chat list.',
-          minutesAgo: 91,
-        },
-      ],
-    },
-    {
-      id: `seed_${viewerId}_group_ops`,
-      type: 'group',
-      title: 'Ops Bridge',
-      memberIds: [viewerId, 'contact-ops', 'contact-omar', 'contact-nina'],
-      messages: [
-        {
-          senderId: 'contact-ops',
-          senderName: 'Ops Bot',
-          body: 'Daily status: storage and notifications remain on the Phase 3 track.',
-          minutesAgo: 73,
-        },
-        {
-          senderId: viewerId,
-          senderName: viewerName,
-          body: 'Noted. We will keep uploads signed and move heavy work into workers.',
-          minutesAgo: 67,
-        },
-      ],
-    },
-  ];
-}
+const legacySeedProfileIds = ['contact-sara', 'contact-milan', 'contact-nina', 'contact-omar', 'contact-ops'];
 
 function slugify(input: string): string {
   return (
@@ -287,6 +133,18 @@ function formatRelative(iso: string): string {
   return `${diffDays}d`;
 }
 
+function formatCreatedAtLabel(iso: string | null): string {
+  if (!iso) {
+    return 'Recently';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(iso));
+}
+
 function deriveAvatarLabel(title: string): string {
   const words = title
     .split(' ')
@@ -340,87 +198,98 @@ function getDirectSubtitle(lastSeenAt: string | null): string {
   }
 
   if (!lastSeenAt) {
-    return 'Offline';
+    return 'Waiting for activity';
   }
 
   return `Last seen ${formatRelative(lastSeenAt)} ago`;
 }
 
-async function ensureStarterData(viewerSession?: ViewerSession): Promise<void> {
-  const viewer = makeViewer(viewerSession);
+function buildViewer(viewerSession?: ViewerSession, currentUser?: FirestoreUser): MessagingSnapshot['viewer'] {
+  const displayName =
+    currentUser?.display_name?.trim() ||
+    viewerSession?.name?.trim() ||
+    currentUser?.username?.trim() ||
+    'Workspace User';
+  const username = currentUser?.username?.trim() || slugify(displayName);
+  const role = currentUser?.role || viewerSession?.role || 'staff';
+  const email = currentUser?.email || viewerSession?.email || null;
 
-  await adminDb.collection(collections.profiles).doc(viewer.id).set(
-    {
-      displayName: viewer.displayName,
-      username: slugify(viewer.displayName),
-      phoneLabel: viewer.phoneLabel,
-      about: viewer.about,
-      avatarLabel: viewer.avatarLabel,
-      lastSeenAt: new Date(),
-    } satisfies FirestoreProfile,
-    { merge: true }
-  );
+  return {
+    id: viewerSession?.id || 'viewer-session',
+    displayName,
+    handle: `@${username}`,
+    avatarLabel: deriveAvatarLabel(displayName),
+    phoneLabel: email || 'Connected account',
+    about: role === 'admin' ? 'Admin account connected.' : 'Connected team member.',
+    email,
+    role,
+  };
+}
 
-  const existingConversations = await adminDb
+function toWorkspaceMember(id: string, user: FirestoreUser): WorkspaceMember {
+  const displayName = user.display_name?.trim() || user.username?.trim() || 'Team member';
+  const status = user.status === 'pending' ? 'pending' : 'active';
+
+  return {
+    id,
+    username: user.username?.trim() || slugify(displayName),
+    displayName,
+    email: user.email || null,
+    role: user.role || 'staff',
+    status,
+    avatarLabel: deriveAvatarLabel(displayName),
+    createdAtLabel: formatCreatedAtLabel(toIso(user.created_at)),
+  };
+}
+
+function toProfilePayload(member: WorkspaceMember | MessagingSnapshot['viewer'], lastSeenAt?: Date): FirestoreProfile {
+  const username = 'handle' in member ? member.handle.slice(1) : member.username;
+
+  return {
+    displayName: member.displayName,
+    username,
+    phoneLabel: member.email || 'Connected account',
+    about: member.role === 'admin' ? 'Admin account connected.' : 'Connected team member.',
+    avatarLabel: member.avatarLabel,
+    ...(lastSeenAt ? { lastSeenAt } : {}),
+  };
+}
+
+function isLegacySeedConversation(conversationId: string): boolean {
+  return conversationId.startsWith('seed_');
+}
+
+async function deleteConversation(conversationId: string): Promise<void> {
+  const conversationRef = adminDb.collection(collections.conversations).doc(conversationId);
+  const messageSnapshot = await conversationRef.collection('messages').get();
+
+  if (!messageSnapshot.empty) {
+    const batch = adminDb.batch();
+
+    for (const document of messageSnapshot.docs) {
+      batch.delete(document.ref);
+    }
+
+    await batch.commit();
+  }
+
+  await conversationRef.delete();
+}
+
+async function cleanupLegacySeedData(viewerId: string): Promise<void> {
+  const snapshot = await adminDb
     .collection(collections.conversations)
-    .where('participantIds', 'array-contains', viewer.id)
-    .limit(1)
+    .where('participantIds', 'array-contains', viewerId)
     .get();
 
-  if (!existingConversations.empty) {
-    return;
-  }
+  const seedConversationIds = snapshot.docs
+    .map((document) => document.id)
+    .filter((conversationId) => isLegacySeedConversation(conversationId));
 
-  const batch = adminDb.batch();
-
-  for (const contact of seedContacts) {
-    batch.set(
-      adminDb.collection(collections.profiles).doc(contact.id),
-      {
-        displayName: contact.displayName,
-        username: contact.username,
-        phoneLabel: contact.phoneLabel,
-        about: contact.about,
-        avatarLabel: deriveAvatarLabel(contact.displayName),
-        lastSeenAt: new Date(Date.now() - contact.lastSeenMinutesAgo * minute),
-      } satisfies FirestoreProfile,
-      { merge: true }
-    );
-  }
-
-  const conversations = buildSeedConversations(viewer.id, viewer.displayName);
-
-  for (const conversation of conversations) {
-    const conversationRef = adminDb.collection(collections.conversations).doc(conversation.id);
-    const lastMessage = conversation.messages[conversation.messages.length - 1];
-    const lastMessageAt = new Date(Date.now() - lastMessage.minutesAgo * minute);
-
-    batch.set(conversationRef, {
-      type: conversation.type,
-      title: conversation.title,
-      participantIds: conversation.memberIds,
-      memberCount: conversation.memberIds.length,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      lastMessageAt,
-      lastMessageText: lastMessage.body,
-      lastMessageSenderId: lastMessage.senderId,
-      lastMessageSenderName: lastMessage.senderName,
-    } satisfies FirestoreConversation);
-
-    conversation.messages.forEach((message, index) => {
-      batch.set(conversationRef.collection('messages').doc(`seed-${index}`), {
-        clientId: `seed.${conversation.id}.${index}`,
-        senderId: message.senderId,
-        senderName: message.senderName,
-        body: message.body,
-        kind: 'text',
-        createdAt: new Date(Date.now() - message.minutesAgo * minute),
-      } satisfies FirestoreMessage);
-    });
-  }
-
-  await batch.commit();
+  await Promise.all(seedConversationIds.map((conversationId) => deleteConversation(conversationId)));
+  await Promise.all(
+    legacySeedProfileIds.map((profileId) => adminDb.collection(collections.profiles).doc(profileId).delete())
+  );
 }
 
 async function loadProfiles(profileIds: string[]): Promise<Record<string, FirestoreProfile>> {
@@ -467,21 +336,70 @@ async function loadConversationMessageDocs(conversationId: string): Promise<Mess
   });
 }
 
-async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<MessagingSnapshot> {
-  const viewer = makeViewer(viewerSession);
+async function loadTeamDirectory(): Promise<TeamDirectory> {
+  const snapshot = await adminDb.collection('users').orderBy('created_at', 'asc').get();
 
-  await ensureStarterData(viewerSession);
+  const members = snapshot.docs.map((document) =>
+    toWorkspaceMember(document.id, document.data() as FirestoreUser)
+  );
+  const activeMembers = members.filter((member) => member.status === 'active');
+  const pendingMembers = members.filter((member) => member.status === 'pending');
+
+  return {
+    activeMembers,
+    pendingMembers,
+    memberById: members.reduce<Record<string, WorkspaceMember>>((accumulator, member) => {
+      accumulator[member.id] = member;
+      return accumulator;
+    }, {}),
+    userById: snapshot.docs.reduce<Record<string, FirestoreUser>>((accumulator, document) => {
+      accumulator[document.id] = document.data() as FirestoreUser;
+      return accumulator;
+    }, {}),
+  };
+}
+
+async function buildViewerContext(viewerSession?: ViewerSession): Promise<{
+  viewer: MessagingSnapshot['viewer'];
+  teamDirectory: TeamDirectory;
+}> {
+  const teamDirectory = await loadTeamDirectory();
+  const currentUser = viewerSession?.id ? teamDirectory.userById[viewerSession.id] : undefined;
+  const viewer = buildViewer(viewerSession, currentUser);
+
+  await adminDb
+    .collection(collections.profiles)
+    .doc(viewer.id)
+    .set(toProfilePayload(viewer, new Date()), { merge: true });
+
+  return { viewer, teamDirectory };
+}
+
+function buildDirectConversationId(viewerId: string, memberId: string): string {
+  const [left, right] = [viewerId, memberId]
+    .sort((first, second) => first.localeCompare(second))
+    .map((value) => Buffer.from(value).toString('base64url'));
+
+  return `direct_${left}_${right}`;
+}
+
+async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<MessagingSnapshot> {
+  const { viewer, teamDirectory } = await buildViewerContext(viewerSession);
+  const memberById = teamDirectory.memberById;
+
+  try {
+    await cleanupLegacySeedData(viewer.id);
+  } catch (error) {
+    console.warn('[messaging-store] legacy cleanup skipped:', error);
+  }
 
   const conversationSnapshot = await adminDb
     .collection(collections.conversations)
     .where('participantIds', 'array-contains', viewer.id)
     .get();
 
-  if (conversationSnapshot.empty) {
-    return getMockMessagingSnapshot(viewerSession);
-  }
-
   const conversationDocs = conversationSnapshot.docs
+    .filter((document) => !isLegacySeedConversation(document.id))
     .map((document) => ({
       id: document.id,
       ...((document.data() as FirestoreConversation) || {}),
@@ -491,6 +409,16 @@ async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<Mess
       const rightIso = toIso(right.lastMessageAt || right.createdAt) || '';
       return rightIso.localeCompare(leftIso);
     });
+
+  if (conversationDocs.length === 0) {
+    return {
+      viewer,
+      conversations: [],
+      messagesByConversation: {},
+      members: teamDirectory.activeMembers,
+      pendingMembers: teamDirectory.pendingMembers,
+    };
+  }
 
   const profileIds = [...new Set(conversationDocs.flatMap((conversation) => conversation.participantIds || []))];
   const profiles = await loadProfiles(profileIds);
@@ -523,13 +451,12 @@ async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<Mess
 
   const conversations = conversationDocs.map((conversation) => {
     const participantIds = conversation.participantIds || [];
-    const otherProfile = participantIds
-      .filter((participantId) => participantId !== viewer.id)
-      .map((participantId) => profiles[participantId])
-      .find(Boolean);
+    const otherMemberId = participantIds.find((participantId) => participantId !== viewer.id);
+    const otherProfile = otherMemberId ? profiles[otherMemberId] : undefined;
+    const otherMember = otherMemberId ? memberById[otherMemberId] : undefined;
     const title =
       conversation.type === 'direct'
-        ? otherProfile?.displayName || conversation.title || 'Direct chat'
+        ? otherProfile?.displayName || otherMember?.displayName || conversation.title || 'Direct chat'
         : conversation.title || 'Group chat';
     const otherLastSeen = toIso(otherProfile?.lastSeenAt);
     const latestMessage = messagesByConversation[conversation.id]?.slice(-1)[0];
@@ -551,7 +478,9 @@ async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<Mess
           ? `You: ${latestMessage.body}`
           : `${latestMessage.senderName}: ${latestMessage.body}`
         : conversation.lastMessageText || 'No messages yet',
-      lastActivityLabel: latestMessage ? formatRelative(latestMessage.createdAt) : 'now',
+      lastActivityLabel: latestMessage
+        ? formatRelative(latestMessage.createdAt)
+        : formatRelative(toIso(conversation.createdAt) || new Date().toISOString()),
       presence: conversation.type === 'direct' ? getPresenceState(otherLastSeen) : 'online',
     } satisfies ConversationSummary;
   });
@@ -560,6 +489,8 @@ async function getFirestoreSnapshot(viewerSession?: ViewerSession): Promise<Mess
     viewer,
     conversations,
     messagesByConversation,
+    members: teamDirectory.activeMembers,
+    pendingMembers: teamDirectory.pendingMembers,
   };
 }
 
@@ -585,11 +516,59 @@ export async function loadConversationMessages(
   }
 }
 
+export async function createDirectConversation(
+  memberId: string,
+  viewerSession?: ViewerSession
+): Promise<{ conversationId: string; snapshot: MessagingSnapshot } | null> {
+  if (!memberId || !viewerSession?.id) {
+    return null;
+  }
+
+  try {
+    const { viewer, teamDirectory } = await buildViewerContext(viewerSession);
+    const member = teamDirectory.memberById[memberId];
+
+    if (!member || member.status !== 'active' || member.id === viewer.id) {
+      return null;
+    }
+
+    const conversationId = buildDirectConversationId(viewer.id, member.id);
+    const conversationRef = adminDb.collection(collections.conversations).doc(conversationId);
+    const existingConversation = await conversationRef.get();
+    const participantIds = [viewer.id, member.id];
+
+    if (!existingConversation.exists) {
+      const createdAt = new Date();
+
+      await Promise.all([
+        adminDb.collection(collections.profiles).doc(member.id).set(toProfilePayload(member), { merge: true }),
+        conversationRef.set({
+          type: 'direct',
+          title: null,
+          participantIds,
+          memberCount: participantIds.length,
+          createdAt,
+          updatedAt: createdAt,
+        } satisfies FirestoreConversation),
+      ]);
+    }
+
+    const snapshot = await getFirestoreSnapshot(viewerSession);
+
+    return {
+      conversationId,
+      snapshot,
+    };
+  } catch (error) {
+    console.error('[messaging-store] conversation create failed:', error);
+    return null;
+  }
+}
+
 export async function createMessage(
   input: SendMessageInput,
   viewerSession?: ViewerSession
 ): Promise<{ message: MessagingMessage; conversations: ConversationSummary[] } | null> {
-  const viewer = makeViewer(viewerSession);
   const trimmedBody = input.body.trim();
 
   if (!trimmedBody) {
@@ -597,8 +576,7 @@ export async function createMessage(
   }
 
   try {
-    await ensureStarterData(viewerSession);
-
+    const { viewer } = await buildViewerContext(viewerSession);
     const conversationRef = adminDb.collection(collections.conversations).doc(input.conversationId);
     const messageRef = conversationRef.collection('messages').doc();
     const createdAt = new Date();
@@ -638,14 +616,7 @@ export async function createMessage(
 
       transaction.set(
         adminDb.collection(collections.profiles).doc(viewer.id),
-        {
-          displayName: viewer.displayName,
-          username: slugify(viewer.displayName),
-          phoneLabel: viewer.phoneLabel,
-          about: viewer.about,
-          avatarLabel: viewer.avatarLabel,
-          lastSeenAt: createdAt,
-        } satisfies FirestoreProfile,
+        toProfilePayload(viewer, createdAt),
         { merge: true }
       );
     });
@@ -669,6 +640,10 @@ export async function createMessage(
       conversations: snapshot.conversations,
     };
   } catch (error) {
+    if (error instanceof Error && ['conversation_not_found', 'conversation_forbidden'].includes(error.message)) {
+      return null;
+    }
+
     console.error('[messaging-store] message fallback:', error);
     return appendMockMessage(input, viewerSession);
   }

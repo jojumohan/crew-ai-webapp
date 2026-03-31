@@ -11,6 +11,8 @@ export interface MessagingViewer {
   avatarLabel: string;
   phoneLabel: string;
   about: string;
+  email: string | null;
+  role: string;
 }
 
 export interface ConversationSummary {
@@ -46,6 +48,8 @@ export interface MessagingSnapshot {
   viewer: MessagingViewer;
   conversations: ConversationSummary[];
   messagesByConversation: Record<string, MessagingMessage[]>;
+  members: WorkspaceMember[];
+  pendingMembers: WorkspaceMember[];
 }
 
 export interface SendMessageInput {
@@ -56,4 +60,17 @@ export interface SendMessageInput {
 export interface ViewerSession {
   id?: string;
   name?: string | null;
+  email?: string | null;
+  role?: string | null;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string | null;
+  role: string;
+  status: 'active' | 'pending';
+  avatarLabel: string;
+  createdAtLabel: string;
 }

@@ -214,6 +214,21 @@
   padding-right: 0.15rem;
 }
 
+.emptyListCard,
+.emptyThread,
+.infoBox {
+  padding: 1rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+.emptyListCard h4,
+.emptyThread h3,
+.infoBox strong {
+  margin-bottom: 0.35rem;
+}
+
 .conversation,
 .conversationActive {
   display: grid;
@@ -405,10 +420,39 @@
 .detailColumn {
   display: grid;
   gap: 1rem;
+  align-content: start;
 }
 
 .detailCard {
   padding: 1.15rem;
+}
+
+.detailHeader,
+.memberMeta,
+.memberCard,
+.pendingCard,
+.pendingActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.detailHeader,
+.memberCard,
+.pendingCard {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pendingBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: rgba(248, 179, 93, 0.14);
+  color: #ffd59f;
+  font-size: 0.8rem;
 }
 
 .stackList {
@@ -428,6 +472,117 @@
   padding-left: 1.1rem;
   display: grid;
   gap: 0.45rem;
+}
+
+.memberList,
+.pendingList,
+.memberForm {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.memberList,
+.pendingList {
+  margin-top: 1rem;
+}
+
+.memberCard,
+.pendingCard {
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.memberMeta {
+  align-items: center;
+  min-width: 0;
+}
+
+.memberMeta div {
+  min-width: 0;
+}
+
+.memberMeta p,
+.pendingCard p,
+.infoBox p,
+.emptyListCard p,
+.emptyThread p {
+  color: rgba(248, 250, 252, 0.68);
+}
+
+.memberAvatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #89efd0, #49c5a0);
+  color: #041712;
+  font-family: var(--font-space-grotesk), sans-serif;
+  font-weight: 700;
+}
+
+.memberAction,
+.memberPrimaryAction,
+.memberApprove,
+.memberReject {
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.memberAction,
+.memberApprove {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  background: rgba(141, 239, 208, 0.16);
+  color: #baf8e2;
+}
+
+.memberPrimaryAction {
+  min-height: 3rem;
+  padding: 0 1rem;
+  background: linear-gradient(135deg, #8df0d1, #41c69f);
+  color: #031a13;
+}
+
+.memberReject {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  background: rgba(242, 139, 130, 0.12);
+  color: #ffc7c3;
+}
+
+.memberAction:disabled,
+.memberPrimaryAction:disabled,
+.memberApprove:disabled,
+.memberReject:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.memberInput {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(3, 10, 15, 0.6);
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+}
+
+.success {
+  margin-top: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(77, 208, 168, 0.14);
+  border: 1px solid rgba(77, 208, 168, 0.16);
+  color: #baf8e2;
 }
 
 .emptyState {
@@ -472,6 +627,10 @@
   .chatColumn {
     min-height: 60vh;
   }
+
+  .detailColumn {
+    display: grid;
+  }
 }
 
 @media (max-width: 720px) {
@@ -507,5 +666,15 @@
 
   .sendButton {
     width: 100%;
+  }
+
+  .memberCard,
+  .pendingCard,
+  .detailHeader {
+    display: grid;
+  }
+
+  .pendingActions {
+    justify-content: flex-start;
   }
 }
