@@ -237,9 +237,7 @@ export default function MessagingWorkspace({
   initialSnapshot: MessagingSnapshot;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const [selectedConversationId, setSelectedConversationId] = useState(
-    initialSnapshot.conversations[0]?.id || ''
-  );
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
@@ -364,9 +362,10 @@ export default function MessagingWorkspace({
 
   // Typing indicators listener
   useEffect(() => {
-    if (!selectedConversationId) return;
+    const currentId = selectedConversationId;
+    if (!currentId) return;
 
-    const typingRef = collection(db, 'messaging_conversations', selectedConversationId, 'typing');
+    const typingRef = collection(db, 'messaging_conversations', currentId, 'typing');
     
     const unsubscribe = onSnapshot(typingRef, (querySnapshot) => {
       const typingNow: string[] = [];
@@ -380,7 +379,7 @@ export default function MessagingWorkspace({
       
       setTypingUsers(prev => ({
         ...prev,
-        [selectedConversationId]: typingNow
+        [currentId]: typingNow
       }));
     });
 
@@ -388,6 +387,7 @@ export default function MessagingWorkspace({
   }, [selectedConversationId, snapshot.viewer.id]);
 
   const typingLabel = useMemo(() => {
+    if (!selectedConversationId) return null;
     const typing = typingUsers[selectedConversationId] || [];
     if (typing.length === 0) return null;
     if (typing.length === 1) return `${typing[0]} is typing...`;
@@ -395,10 +395,9 @@ export default function MessagingWorkspace({
     return `${typing.length} people are typing...`;
   }, [typingUsers, selectedConversationId]);
 
-  const activeConversation =
-    snapshot.conversations.find((conversation) => conversation.id === selectedConversationId) ||
-    snapshot.conversations[0] ||
-    null;
+  const activeConversation = selectedConversationId 
+    ? (snapshot.conversations.find((conversation) => conversation.id === selectedConversationId) || null)
+    : null;
   const visibleMessages = activeConversation
     ? snapshot.messagesByConversation[activeConversation.id] || []
     : [];
@@ -1127,7 +1126,7 @@ export default function MessagingWorkspace({
         </div>
       )}
 
-      <div className={styles.workspace}>
+      <div className={`${styles.workspace} ${selectedConversationId ? styles.hasActiveChat : ''}`}>
         <aside className={styles.sidebar}>
           <header className={styles.sidebarHeader}>
             <div className={styles.viewerAvatar}>{snapshot.viewer.avatarLabel}</div>
@@ -1268,6 +1267,12 @@ export default function MessagingWorkspace({
           {activeConversation ? (
             <>
               <header className={styles.chatHeader}>
+                <button 
+                  className={styles.mobileBack} 
+                  onClick={() => setSelectedConversationId(null)}
+                >
+                  <BackIcon className={styles.icon} />
+                </button>
                 <div className={styles.chatIdentity} onClick={() => setIsInfoPanelOpen(!isInfoPanelOpen)} style={{ cursor: 'pointer' }}>
                   <span
                     className={`${styles.chatAvatar} ${
