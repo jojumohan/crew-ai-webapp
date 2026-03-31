@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import styles from './login.module.css';
 
@@ -28,11 +29,11 @@ export default function LoginPage() {
     setLoading(false);
 
     if (response?.error) {
-      if (response.error === 'CallbackRouteError') {
-        setError('Your account is still pending approval.');
-      } else {
-        setError('That username and password did not match.');
-      }
+      setError(
+        response.error === 'CallbackRouteError'
+          ? 'Your account is still pending approval.'
+          : 'That username and password did not match.'
+      );
       return;
     }
 
@@ -42,37 +43,11 @@ export default function LoginPage() {
   return (
     <main className={styles.main}>
       <section className={styles.panel}>
-        <div className={styles.introCard}>
-          <p className={styles.eyebrow}>Messaging rebuild</p>
-          <h1>Sign in to the new chat workspace.</h1>
-          <p className={styles.copy}>
-            This login keeps the current auth flow while the product is rebuilt around
-            direct messaging, groups, media uploads, and calling.
-          </p>
-
-          <div className={styles.featureList}>
-            <article>
-              <strong>Phase 1</strong>
-              <span>Auth, 1-on-1 chat, uploads, message history, presence</span>
-            </article>
-            <article>
-              <strong>Phase 2</strong>
-              <span>Group chats, typing, read receipts, last seen</span>
-            </article>
-            <article>
-              <strong>Phase 3</strong>
-              <span>Voice and video calls, push notifications, devices</span>
-            </article>
-          </div>
-        </div>
-
-        <div className={styles.formCard}>
-          <div className={styles.formHeader}>
-            <div className={styles.badge}>W</div>
-            <div>
-              <p className={styles.eyebrow}>Secure access</p>
-              <h2>Welcome back</h2>
-            </div>
+        <div className={styles.card}>
+          <div className={styles.header}>
+            <div className={styles.logo}>W</div>
+            <h1>Welcome Back</h1>
+            <p>Sign in to continue to WhatsApp Web.</p>
           </div>
 
           <form onSubmit={handleSubmit} className={styles.form}>
@@ -103,12 +78,12 @@ export default function LoginPage() {
             {error ? <p className={styles.error}>{error}</p> : null}
 
             <button type="submit" className={styles.button} disabled={loading}>
-              {loading ? 'Signing in...' : 'Enter workspace'}
+              {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
 
-          <p className={styles.footnote}>
-            Current build uses the existing credentials flow while the new chat backend is being wired in.
+          <p className={styles.switch}>
+            Need an account? <Link href="/register">Request access</Link>
           </p>
         </div>
       </section>

@@ -1,8 +1,26 @@
 'use client';
 
-import { useDeferredValue, useEffect, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { signOut } from 'next-auth/react';
 import { getSignOutCallbackUrl } from '@/lib/auth-client';
+import {
+  BackIcon,
+  BellIcon,
+  ChatBubbleIcon,
+  ClipIcon,
+  CloseIcon,
+  CommunityIcon,
+  DotsIcon,
+  FilterIcon,
+  LockIcon,
+  PhoneIcon,
+  PlusIcon,
+  SearchIcon,
+  SendIcon,
+  SmileyIcon,
+  StatusIcon,
+  VideoIcon,
+} from './InterfaceIcons';
 import styles from './MessagingWorkspace.module.css';
 import type {
   ConversationSummary,
@@ -35,12 +53,33 @@ type TeamApiResponse = {
   users: TeamApiMember[];
 };
 
-type WorkspaceSection = 'chats' | 'members' | 'calls' | 'media';
+type SearchResult =
+  | {
+      kind: 'conversation';
+      id: string;
+      title: string;
+      subtitle: string;
+      meta: string;
+      avatarLabel: string;
+      accent: string;
+    }
+  | {
+      kind: 'member';
+      id: string;
+      title: string;
+      subtitle: string;
+      meta: string;
+      avatarLabel: string;
+      accent: string;
+    };
+
+const quickEmoji = ['😀', '😂', '😍', '🙏', '🔥', '👍'];
 
 function formatClock(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(new Date(iso));
 }
 
@@ -52,30 +91,29 @@ function formatCreatedAtLabel(iso?: string): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   }).format(new Date(iso));
 }
 
-function deriveAvatarLabel(title: string): string {
-  const words = title
-    .split(' ')
-    .map((word) => word.trim())
-    .filter(Boolean);
+function getMemberAccent(memberId: string): string {
+  const colors = ['#00a884', '#53bdeb', '#7d8cf8', '#f28b82', '#f3b04f'];
+  let hash = 0;
 
-  if (words.length === 0) {
-    return 'TM';
+  for (const char of memberId) {
+    hash = (hash * 31 + char.charCodeAt(0)) % colors.length;
   }
 
-  if (words.length === 1) {
-    return words[0].slice(0, 2).toUpperCase();
-  }
-
-  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  return colors[Math.abs(hash) % colors.length];
 }
 
 function mapTeamMembers(users: TeamApiMember[]) {
   const members = users.map((user) => {
     const displayName = user.display_name?.trim() || user.username?.trim() || 'Team member';
+    const initials = displayName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'TM';
     const status = user.status === 'pending' ? 'pending' : 'active';
 
     return {
@@ -85,7 +123,7 @@ function mapTeamMembers(users: TeamApiMember[]) {
       email: user.email || null,
       role: user.role || 'staff',
       status,
-      avatarLabel: deriveAvatarLabel(displayName),
+      avatarLabel: initials,
       createdAtLabel: formatCreatedAtLabel(user.created_at),
     } satisfies WorkspaceMember;
   });
@@ -188,7 +226,6 @@ export default function MessagingWorkspace({
 }: {
   initialSnapshot: MessagingSnapshot;
 }) {
-  const [activeSection, setActiveSection] = useState<WorkspaceSection>('chats');
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [selectedConversationId, setSelectedConversationId] = useState(
     initialSnapshot.conversations[0]?.id || ''
@@ -198,6 +235,11 @@ export default function MessagingWorkspace({
   const [error, setError] = useState('');
   const [memberNotice, setMemberNotice] = useState('');
   const [memberError, setMemberError] = useState('');
+  const [notificationsOpen, setNotificationsOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [memberModalOpen, setMemberModalOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [newMember, setNewMember] = useState({
     display_name: '',
     username: '',
@@ -207,7 +249,7 @@ export default function MessagingWorkspace({
   });
   const [isPending, startTransition] = useTransition();
   const [isMemberPending, startMemberTransition] = useTransition();
-  const deferredSearch = useDeferredValue(search);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const canManageMembers = snapshot.viewer.role === 'admin';
 
   useEffect(() => {
@@ -227,24 +269,64 @@ export default function MessagingWorkspace({
     }
   }, [selectedConversationId, snapshot.conversations]);
 
-  const normalizedQuery = deferredSearch.trim().toLowerCase();
-  const filteredConversations = normalizedQuery
-    ? snapshot.conversations.filter((conversation) => {
-        const haystack =
-          `${conversation.title} ${conversation.subtitle} ${conversation.lastMessagePreview}`.toLowerCase();
-        return haystack.includes(normalizedQuery);
-      })
-    : snapshot.conversations;
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [selectedConversationId, snapshot.messagesByConversation]);
 
   const activeConversation =
     snapshot.conversations.find((conversation) => conversation.id === selectedConversationId) ||
-    snapshot.conversations[0];
-
+    snapshot.conversations[0] ||
+    null;
   const visibleMessages = activeConversation
     ? snapshot.messagesByConversation[activeConversation.id] || []
     : [];
   const otherMembers = snapshot.members.filter((member) => member.id !== snapshot.viewer.id);
-  const isChatsSection = activeSection === 'chats';
+  const normalizedQuery = search.trim().toLowerCase();
+
+  const searchResults = useMemo<SearchResult[]>(() => {
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    const conversationResults = snapshot.conversations
+      .filter((conversation) => {
+        const haystack =
+          `${conversation.title} ${conversation.subtitle} ${conversation.lastMessagePreview}`.toLowerCase();
+        return haystack.includes(normalizedQuery);
+      })
+      .map(
+        (conversation) =>
+          ({
+            kind: 'conversation',
+            id: conversation.id,
+            title: conversation.title,
+            subtitle: conversation.lastMessagePreview,
+            meta: conversation.lastActivityLabel,
+            avatarLabel: conversation.avatarLabel,
+            accent: conversation.accent,
+          }) satisfies SearchResult
+      );
+
+    const memberResults = otherMembers
+      .filter((member) => {
+        const haystack = `${member.displayName} ${member.username} ${member.email || ''}`.toLowerCase();
+        return haystack.includes(normalizedQuery);
+      })
+      .map(
+        (member) =>
+          ({
+            kind: 'member',
+            id: member.id,
+            title: member.displayName,
+            subtitle: member.email || `@${member.username}`,
+            meta: member.role,
+            avatarLabel: member.avatarLabel,
+            accent: getMemberAccent(member.id),
+          }) satisfies SearchResult
+      );
+
+    return [...conversationResults, ...memberResults];
+  }, [normalizedQuery, otherMembers, snapshot.conversations]);
 
   async function refreshMembers() {
     const response = await fetch('/api/team', { cache: 'no-store' });
@@ -293,6 +375,8 @@ export default function MessagingWorkspace({
 
     setError('');
     setDraft('');
+    setEmojiOpen(false);
+    setAttachmentsOpen(false);
     setSnapshot((current) => insertMessage(current, optimisticMessage));
 
     startTransition(() => {
@@ -331,11 +415,7 @@ export default function MessagingWorkspace({
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = event.target;
-
-    setNewMember((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setNewMember((current) => ({ ...current, [name]: value }));
   }
 
   async function handleCreateMember(event: React.FormEvent<HTMLFormElement>) {
@@ -426,9 +506,7 @@ export default function MessagingWorkspace({
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              memberId,
-            }),
+            body: JSON.stringify({ memberId }),
           });
 
           const payload = (await response.json()) as ConversationCreateResponse & { error?: string };
@@ -439,7 +517,8 @@ export default function MessagingWorkspace({
 
           setSnapshot(payload.snapshot);
           setSelectedConversationId(payload.conversationId);
-          setActiveSection('chats');
+          setSearch('');
+          setMemberModalOpen(false);
         } catch (cause) {
           setMemberError(
             cause instanceof Error ? cause.message : 'Conversation could not be opened right now.'
@@ -458,441 +537,553 @@ export default function MessagingWorkspace({
     );
   }
 
-  function renderMembersDirectoryCard() {
-    return (
-      <div className={styles.detailCard}>
-        <div className={styles.detailHeader}>
-          <div>
-            <p className={styles.sectionEyebrow}>Members</p>
-            <h3>{snapshot.members.length} active accounts</h3>
-          </div>
-          {snapshot.pendingMembers.length > 0 ? (
-            <span className={styles.pendingBadge}>{snapshot.pendingMembers.length} pending</span>
-          ) : null}
-        </div>
+  function renderConversationList() {
+    if (normalizedQuery) {
+      return (
+        <div className={styles.listScroller}>
+          {searchResults.length > 0 ? (
+            searchResults.map((result) => (
+              <button
+                key={`${result.kind}-${result.id}`}
+                type="button"
+                className={styles.conversationRow}
+                onClick={() => {
+                  if (result.kind === 'conversation') {
+                    setSelectedConversationId(result.id);
+                    setSearch('');
+                    return;
+                  }
 
-        <div className={styles.memberList}>
-          {otherMembers.length > 0 ? (
-            otherMembers.map((member) => (
-              <div key={member.id} className={styles.memberCard}>
-                <div className={styles.memberMeta}>
-                  <span className={styles.memberAvatar}>{member.avatarLabel}</span>
-                  <div>
-                    <strong>{member.displayName}</strong>
-                    <p>
-                      @{member.username} | {member.role}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className={styles.memberAction}
-                  onClick={() => handleStartConversation(member.id)}
-                  disabled={isMemberPending}
-                >
-                  Start chat
-                </button>
-              </div>
+                  handleStartConversation(result.id);
+                }}
+              >
+                <span className={styles.rowAvatar} style={{ backgroundColor: result.accent }}>
+                  {result.avatarLabel}
+                </span>
+                <span className={styles.rowCopy}>
+                  <strong>{result.title}</strong>
+                  <span>{result.subtitle}</span>
+                </span>
+                <span className={styles.rowMeta}>{result.meta}</span>
+              </button>
             ))
           ) : (
-            <div className={styles.infoBox}>
-              <strong>No other approved members yet</strong>
-              <p>
-                {canManageMembers
-                  ? 'Create one below or approve a pending request to open the first real chat.'
-                  : 'Ask an admin to create or approve another account before testing chat.'}
-              </p>
+            <div className={styles.emptySidebarState}>
+              <h4>No results found</h4>
+              <p>Try another name, username, or email to open a real chat.</p>
             </div>
           )}
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  function renderMemberManagementCard() {
-    if (canManageMembers) {
-      return (
-        <div className={styles.detailCard}>
-          <p className={styles.sectionEyebrow}>Add member</p>
-          <h3>Create a real account</h3>
-          <form className={styles.memberForm} onSubmit={handleCreateMember}>
-            <input
-              name="display_name"
-              className={styles.memberInput}
-              placeholder="Full name"
-              value={newMember.display_name}
-              onChange={handleMemberFieldChange}
-              required
-            />
-            <input
-              name="username"
-              className={styles.memberInput}
-              placeholder="Username"
-              value={newMember.username}
-              onChange={handleMemberFieldChange}
-              required
-            />
-            <input
-              name="email"
-              className={styles.memberInput}
-              placeholder="Email"
-              type="email"
-              value={newMember.email}
-              onChange={handleMemberFieldChange}
-            />
-            <input
-              name="password"
-              className={styles.memberInput}
-              placeholder="Temporary password"
-              type="password"
-              value={newMember.password}
-              onChange={handleMemberFieldChange}
-              required
-              minLength={6}
-            />
-            <select
-              name="role"
-              className={styles.memberInput}
-              value={newMember.role}
-              onChange={handleMemberFieldChange}
+    return (
+      <div className={`${styles.listScroller} ${styles.scrollbar}`}>
+        {snapshot.conversations.length > 0 ? (
+          snapshot.conversations.map((conversation) => {
+            const isActive = conversation.id === activeConversation?.id;
+
+            return (
+              <button
+                key={conversation.id}
+                type="button"
+                className={`${styles.conversationRow} ${isActive ? styles.conversationRowActive : ''}`}
+                onClick={() => setSelectedConversationId(conversation.id)}
+              >
+                <span
+                  className={`${styles.rowAvatar} ${
+                    conversation.presence === 'online' && conversation.type === 'direct'
+                      ? styles.rowAvatarOnline
+                      : ''
+                  }`}
+                  style={{ backgroundColor: conversation.accent }}
+                >
+                  {conversation.avatarLabel}
+                </span>
+                <span className={styles.rowCopy}>
+                  <span className={styles.rowTitleLine}>
+                    <strong>{conversation.title}</strong>
+                    <small>{conversation.lastActivityLabel}</small>
+                  </span>
+                  <span>{conversation.typingLabel || conversation.lastMessagePreview}</span>
+                </span>
+              </button>
+            );
+          })
+        ) : (
+          <div className={styles.emptySidebarState}>
+            <h4>No chats yet</h4>
+            <p>Start a conversation from search or open the new chat panel to message a team member.</p>
+            <button
+              type="button"
+              className={styles.sidebarPrimaryButton}
+              onClick={() => setMemberModalOpen(true)}
             >
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
-            <button type="submit" className={styles.memberPrimaryAction} disabled={isMemberPending}>
-              {isMemberPending ? 'Saving...' : 'Add member'}
+              Open new chat
             </button>
-          </form>
-
-          {snapshot.pendingMembers.length > 0 ? (
-            <div className={styles.pendingList}>
-              {snapshot.pendingMembers.map((member) => (
-                <div key={member.id} className={styles.pendingCard}>
-                  <div>
-                    <strong>{member.displayName}</strong>
-                    <p>
-                      @{member.username} | requested {member.createdAtLabel}
-                    </p>
-                  </div>
-                  <div className={styles.pendingActions}>
-                    <button
-                      type="button"
-                      className={styles.memberApprove}
-                      onClick={() => handleApproval(member.id, 'approve')}
-                      disabled={isMemberPending}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.memberReject}
-                      onClick={() => handleApproval(member.id, 'reject')}
-                      disabled={isMemberPending}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.infoBox}>
-              <strong>No pending requests</strong>
-              <p>Anyone who signs up at `/register` will appear here for approval.</p>
-            </div>
-          )}
-
-          {renderMemberFeedback()}
-        </div>
-      );
-    }
-
-    return (
-      <div className={styles.detailCard}>
-        <p className={styles.sectionEyebrow}>New members</p>
-        <h3>How to add people</h3>
-        <ul className={styles.detailList}>
-          <li>Admins can create members directly from this dashboard.</li>
-          <li>Anyone else can request access at `/register`.</li>
-          <li>Pending requests need admin approval before login works.</li>
-        </ul>
-        {renderMemberFeedback()}
-      </div>
-    );
-  }
-
-  function renderSectionScreen() {
-    if (activeSection === 'members') {
-      return (
-        <div className={styles.panelScreen}>
-          <div className={styles.panelHero}>
-            <p className={styles.sectionEyebrow}>Members</p>
-            <h2>Manage and start chats with your team</h2>
-            <p>
-              Active members, pending requests, and account creation all live here now, even on
-              laptop-sized screens.
-            </p>
           </div>
-          <div className={styles.panelGrid}>
-            {renderMembersDirectoryCard()}
-            {renderMemberManagementCard()}
-          </div>
-        </div>
-      );
-    }
-
-    if (activeSection === 'calls') {
-      return (
-        <div className={styles.placeholderScreen}>
-          <h2>Calls are coming next</h2>
-          <p>Voice and video will land after the core chat and member management flow is stable.</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className={styles.placeholderScreen}>
-        <h2>Media uploads stay in the chat flow</h2>
-        <p>Once uploads are wired, this area will show shared files, previews, and delivery status.</p>
+        )}
       </div>
     );
   }
 
   return (
-    <div className={styles.workspace}>
-      <aside className={styles.rail}>
-        <div className={styles.brandBlock}>
-          <span className={styles.brandMark}>{snapshot.viewer.avatarLabel}</span>
-          <div>
-            <p className={styles.brandEyebrow}>Messaging rebuild</p>
-            <h1 className={styles.brandTitle}>Real members only</h1>
-          </div>
-        </div>
-
-        <nav className={styles.railNav}>
-          <button
-            type="button"
-            className={activeSection === 'chats' ? styles.railActionActive : styles.railAction}
-            onClick={() => setActiveSection('chats')}
-          >
-            <span>Chats</span>
-            <small>Live</small>
-          </button>
-          <button
-            type="button"
-            className={activeSection === 'members' ? styles.railActionActive : styles.railAction}
-            onClick={() => setActiveSection('members')}
-          >
-            <span>Members</span>
-            <small>{snapshot.members.length}</small>
-          </button>
-          <button
-            type="button"
-            className={activeSection === 'calls' ? styles.railActionActive : styles.railAction}
-            onClick={() => setActiveSection('calls')}
-          >
-            <span>Calls</span>
-            <small>Soon</small>
-          </button>
-          <button
-            type="button"
-            className={activeSection === 'media' ? styles.railActionActive : styles.railAction}
-            onClick={() => setActiveSection('media')}
-          >
-            <span>Media</span>
-            <small>Phase 1</small>
-          </button>
-        </nav>
-
-        <button
-          type="button"
-          className={styles.signOut}
-          onClick={() => signOut({ callbackUrl: getSignOutCallbackUrl() })}
-        >
-          Sign out
-        </button>
-      </aside>
-
-      {isChatsSection ? (
-        <section className={styles.listColumn}>
-        <div className={styles.viewerCard}>
-          <div className={styles.viewerAvatar}>{snapshot.viewer.avatarLabel}</div>
-          <div>
-            <h2>{snapshot.viewer.displayName}</h2>
-            <p>
-              {snapshot.viewer.handle} | {snapshot.viewer.role}
-            </p>
-          </div>
-        </div>
-
-        <div className={styles.searchCard}>
-          <label htmlFor="chat-search" className={styles.searchLabel}>
-            Search conversations
-          </label>
-          <input
-            id="chat-search"
-            className={styles.searchInput}
-            placeholder="Search by name, member, or message"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </div>
-
-        <div className={styles.sectionHeader}>
-          <div>
-            <p className={styles.sectionEyebrow}>Inbox</p>
-            <h3>{snapshot.conversations.length} real threads</h3>
-          </div>
-          <span className={styles.statusPill}>Firestore live</span>
-        </div>
-
-        <div className={styles.conversationList}>
-          {filteredConversations.length > 0 ? (
-            filteredConversations.map((conversation) => {
-              const isActive = conversation.id === activeConversation?.id;
-
-              return (
+    <>
+      <div className={styles.workspace}>
+        <aside className={styles.sidebar}>
+          <header className={styles.sidebarHeader}>
+            <div className={styles.viewerAvatar}>{snapshot.viewer.avatarLabel}</div>
+            <div className={styles.headerActions}>
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => setMemberModalOpen(true)}
+                title="Community"
+              >
+                <CommunityIcon className={styles.icon} />
+              </button>
+              <button type="button" className={styles.iconButton} title="Status">
+                <StatusIcon className={styles.icon} />
+              </button>
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => setMemberModalOpen(true)}
+                title="New chat"
+              >
+                <ChatBubbleIcon className={styles.icon} />
+              </button>
+              <div className={styles.menuWrap}>
                 <button
-                  key={conversation.id}
                   type="button"
-                  className={isActive ? styles.conversationActive : styles.conversation}
-                  onClick={() => setSelectedConversationId(conversation.id)}
+                  className={`${styles.iconButton} ${menuOpen ? styles.iconButtonActive : ''}`}
+                  onClick={() => setMenuOpen((current) => !current)}
+                  title="Menu"
                 >
-                  <span
-                    className={styles.conversationAvatar}
-                    style={{ backgroundColor: conversation.accent }}
-                  >
-                    {conversation.avatarLabel}
-                  </span>
-                  <div className={styles.conversationMeta}>
-                    <div className={styles.conversationRow}>
-                      <strong>{conversation.title}</strong>
-                      <span>{conversation.lastActivityLabel}</span>
-                    </div>
-                    <p>{conversation.typingLabel || conversation.lastMessagePreview}</p>
-                    <div className={styles.conversationFooter}>
-                      <span>{conversation.subtitle}</span>
-                      {conversation.unreadCount > 0 ? (
-                        <span className={styles.unreadBadge}>{conversation.unreadCount}</span>
-                      ) : null}
-                    </div>
-                  </div>
+                  <DotsIcon className={styles.icon} />
                 </button>
-              );
-            })
+                {menuOpen ? (
+                  <div className={styles.menuPanel}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMemberModalOpen(true);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      New chat
+                    </button>
+                    {canManageMembers ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMemberModalOpen(true);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        Add member
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void refreshMembers();
+                        setMenuOpen(false);
+                      }}
+                    >
+                      Refresh members
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => signOut({ callbackUrl: getSignOutCallbackUrl() })}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </header>
+
+          {notificationsOpen ? (
+            <div className={styles.notifications}>
+              <div className={styles.notificationsIcon}>
+                <BellIcon className={styles.notificationBell} />
+              </div>
+              <div className={styles.notificationsCopy}>
+                <strong>Get notified of new messages</strong>
+                <span>Turn on desktop notifications</span>
+              </div>
+              <button
+                type="button"
+                className={styles.closeButton}
+                onClick={() => setNotificationsOpen(false)}
+              >
+                <CloseIcon className={styles.smallIcon} />
+              </button>
+            </div>
+          ) : null}
+
+          <div className={styles.searchBarWrap}>
+            <div className={styles.searchBar}>
+              {normalizedQuery ? (
+                <button
+                  type="button"
+                  className={styles.searchBackButton}
+                  onClick={() => setSearch('')}
+                >
+                  <BackIcon className={styles.smallIcon} />
+                </button>
+              ) : (
+                <span className={styles.searchLead}>
+                  <SearchIcon className={styles.smallIcon} />
+                </span>
+              )}
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className={styles.searchInput}
+                placeholder="Search or start a new chat"
+              />
+            </div>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={() => setMemberModalOpen(true)}
+              title="Filter"
+            >
+              <FilterIcon className={styles.icon} />
+            </button>
+          </div>
+
+          {renderConversationList()}
+        </aside>
+
+        <section className={styles.chatShell}>
+          {activeConversation ? (
+            <>
+              <header className={styles.chatHeader}>
+                <div className={styles.chatIdentity}>
+                  <span
+                    className={`${styles.chatAvatar} ${
+                      activeConversation.presence === 'online' && activeConversation.type === 'direct'
+                        ? styles.chatAvatarOnline
+                        : ''
+                    }`}
+                    style={{ backgroundColor: activeConversation.accent }}
+                  >
+                    {activeConversation.avatarLabel}
+                  </span>
+                  <div className={styles.chatIdentityCopy}>
+                    <h2>{activeConversation.title}</h2>
+                    <span>
+                      {activeConversation.typingLabel ||
+                        (activeConversation.type === 'group'
+                          ? `${activeConversation.memberCount} participants`
+                          : activeConversation.subtitle)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className={styles.chatActions}>
+                  <button type="button" className={styles.iconButton} title="Video call">
+                    <VideoIcon className={styles.icon} />
+                  </button>
+                  <button type="button" className={styles.iconButton} title="Call">
+                    <PhoneIcon className={styles.icon} />
+                  </button>
+                  <button type="button" className={styles.iconButton} title="Search">
+                    <SearchIcon className={styles.icon} />
+                  </button>
+                  <button type="button" className={styles.iconButton} title="More">
+                    <DotsIcon className={styles.icon} />
+                  </button>
+                </div>
+              </header>
+
+              <div className={styles.messagesSurface}>
+                <div className={`${styles.messagesScroller} ${styles.scrollbar}`}>
+                  {visibleMessages.map((message) => (
+                    <article
+                      key={message.id}
+                      className={`${styles.messageRow} ${
+                        message.direction === 'outgoing' ? styles.messageRowOutgoing : ''
+                      }`}
+                    >
+                      <div
+                        className={`${styles.messageBubble} ${
+                          message.direction === 'outgoing'
+                            ? styles.messageBubbleOutgoing
+                            : styles.messageBubbleIncoming
+                        }`}
+                      >
+                        {message.direction === 'incoming' && activeConversation.type === 'group' ? (
+                          <p className={styles.messageSender}>{message.senderName}</p>
+                        ) : null}
+                        <p className={styles.messageText}>{message.body}</p>
+                        <span className={styles.messageTime}>{message.createdAtLabel}</span>
+                      </div>
+                    </article>
+                  ))}
+                  {activeConversation.typingLabel ? (
+                    <div className={styles.typingMarker}>{activeConversation.typingLabel}</div>
+                  ) : null}
+                  <div ref={messagesEndRef} />
+                </div>
+              </div>
+
+              <form className={styles.composerBar} onSubmit={handleSubmit}>
+                <div className={styles.composerTools}>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => {
+                      setEmojiOpen((current) => !current);
+                      setAttachmentsOpen(false);
+                    }}
+                  >
+                    <SmileyIcon className={styles.icon} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => {
+                      setAttachmentsOpen((current) => !current);
+                      setEmojiOpen(false);
+                    }}
+                  >
+                    <ClipIcon className={styles.icon} />
+                  </button>
+                </div>
+
+                <div className={styles.composerInputWrap}>
+                  {emojiOpen ? (
+                    <div className={styles.emojiPicker}>
+                      {quickEmoji.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={styles.emojiButton}
+                          onClick={() => setDraft((current) => `${current}${emoji}`)}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {attachmentsOpen ? (
+                    <div className={styles.attachmentsMenu}>
+                      <div>
+                        <strong>Attachments</strong>
+                        <span>Media and file uploads will plug into this same tray.</span>
+                      </div>
+                      <button type="button" className={styles.attachmentShortcut}>
+                        <PlusIcon className={styles.smallIcon} />
+                        <span>Photo or video</span>
+                      </button>
+                      <button type="button" className={styles.attachmentShortcut}>
+                        <PlusIcon className={styles.smallIcon} />
+                        <span>Document</span>
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    className={styles.composerInput}
+                    placeholder="Type a message"
+                    rows={1}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className={styles.sendButton}
+                  disabled={isPending || !draft.trim()}
+                >
+                  <SendIcon className={styles.sendIcon} />
+                </button>
+              </form>
+
+              {error ? <p className={styles.error}>{error}</p> : null}
+            </>
           ) : (
-            <div className={styles.emptyListCard}>
-              <h4>No real chats yet</h4>
-              <p>Add or approve a real member, then open the Members tab to start a direct conversation.</p>
+            <div className={styles.welcomeScreen}>
+              <div className={styles.welcomeMark}>W</div>
+              <h2>WhatsApp Web</h2>
+              <p>
+                Send and receive messages without keeping your phone online.
+                <br />
+                Use WhatsApp on up to 4 linked devices and 1 phone at the same time.
+              </p>
+              <div className={styles.welcomeFooter}>
+                <LockIcon className={styles.smallIcon} />
+                <span>End-to-end encrypted personal messages</span>
+              </div>
             </div>
           )}
-        </div>
         </section>
-      ) : null}
+      </div>
 
-      <section className={`${styles.chatColumn} ${!isChatsSection ? styles.chatColumnWide : ''}`}>
-        {isChatsSection ? (
-          activeConversation ? (
-          <>
-            <header className={styles.chatHeader}>
-              <div className={styles.chatIdentity}>
-                <span
-                  className={styles.chatAvatar}
-                  style={{ backgroundColor: activeConversation.accent }}
-                >
-                  {activeConversation.avatarLabel}
-                </span>
-                <div>
-                  <h2>{activeConversation.title}</h2>
-                  <p>{activeConversation.typingLabel || activeConversation.subtitle}</p>
-                </div>
+      {memberModalOpen ? (
+        <div className={styles.modalOverlay} onClick={() => setMemberModalOpen(false)}>
+          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.modalEyebrow}>New chat</p>
+                <h3>Members and approvals</h3>
               </div>
-
-              <div className={styles.chatActions}>
-                <span className={styles.actionChip}>Uploads</span>
-                <span className={styles.actionChip}>Presence</span>
-                <span className={styles.actionChipMuted}>Calls next</span>
-              </div>
-            </header>
-
-            <div className={styles.messageStream}>
-              {visibleMessages.length > 0 ? (
-                visibleMessages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={message.direction === 'outgoing' ? styles.outgoing : styles.incoming}
-                  >
-                    <div className={styles.messageBubble}>
-                      {message.direction === 'incoming' ? (
-                        <p className={styles.messageSender}>{message.senderName}</p>
-                      ) : null}
-                      <p className={styles.messageBody}>{message.body}</p>
-                      <div className={styles.messageMeta}>
-                        <span>{message.createdAtLabel}</span>
-                        <span>{message.delivery}</span>
-                      </div>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className={styles.emptyThread}>
-                  <h3>No messages yet</h3>
-                  <p>This thread is ready. Send the first message when you are ready to test.</p>
-                </div>
-              )}
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => setMemberModalOpen(false)}
+              >
+                <CloseIcon className={styles.icon} />
+              </button>
             </div>
 
-            <form className={styles.composer} onSubmit={handleSubmit}>
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className={styles.composerInput}
-                placeholder={`Message ${activeConversation.title}`}
-                rows={1}
-              />
-              <button type="submit" className={styles.sendButton} disabled={isPending || !draft.trim()}>
-                {isPending ? 'Sending...' : 'Send'}
-              </button>
-            </form>
+            <div className={styles.modalSection}>
+              <h4>Active members</h4>
+              <div className={`${styles.modalList} ${styles.scrollbar}`}>
+                {otherMembers.length > 0 ? (
+                  otherMembers.map((member) => (
+                    <div key={member.id} className={styles.memberRow}>
+                      <div className={styles.memberIdentity}>
+                        <span
+                          className={styles.memberAvatar}
+                          style={{ backgroundColor: getMemberAccent(member.id) }}
+                        >
+                          {member.avatarLabel}
+                        </span>
+                        <div>
+                          <strong>{member.displayName}</strong>
+                          <span>{member.email || `@${member.username}`}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.memberAction}
+                        onClick={() => handleStartConversation(member.id)}
+                        disabled={isMemberPending}
+                      >
+                        Chat
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className={styles.emptyModalState}>
+                    <p>No active teammates yet. Create one below to start your first chat.</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
-            {error ? <p className={styles.error}>{error}</p> : null}
-          </>
-        ) : (
-          <div className={styles.emptyState}>
-            <h2>Only connected accounts can chat here</h2>
-            <p>
-              The demo accounts are gone. Add or approve a real member, then start a direct chat
-              from the member panel.
-            </p>
-          </div>
-        )
-        ) : (
-          renderSectionScreen()
-        )}
-      </section>
+            {canManageMembers ? (
+              <div className={styles.modalSection}>
+                <h4>Add member</h4>
+                <form className={styles.memberForm} onSubmit={handleCreateMember}>
+                  <input
+                    name="display_name"
+                    className={styles.memberInput}
+                    placeholder="Full name"
+                    value={newMember.display_name}
+                    onChange={handleMemberFieldChange}
+                    required
+                  />
+                  <input
+                    name="username"
+                    className={styles.memberInput}
+                    placeholder="Username"
+                    value={newMember.username}
+                    onChange={handleMemberFieldChange}
+                    required
+                  />
+                  <input
+                    name="email"
+                    className={styles.memberInput}
+                    placeholder="Email"
+                    type="email"
+                    value={newMember.email}
+                    onChange={handleMemberFieldChange}
+                  />
+                  <input
+                    name="password"
+                    className={styles.memberInput}
+                    placeholder="Temporary password"
+                    type="password"
+                    value={newMember.password}
+                    onChange={handleMemberFieldChange}
+                    minLength={6}
+                    required
+                  />
+                  <select
+                    name="role"
+                    className={styles.memberInput}
+                    value={newMember.role}
+                    onChange={handleMemberFieldChange}
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className={styles.modalPrimaryButton}
+                    disabled={isMemberPending}
+                  >
+                    {isMemberPending ? 'Saving...' : 'Add member'}
+                  </button>
+                </form>
+              </div>
+            ) : null}
 
-      {isChatsSection ? (
-        <aside className={styles.detailColumn}>
-        <div className={styles.detailCard}>
-          <p className={styles.sectionEyebrow}>Build status</p>
-          <h3>Real account workspace</h3>
-          <p>
-            The inbox now stays empty until a real approved member exists. Demo conversations and
-            seed contacts are blocked from the UI and cleaned up from the messaging store.
-          </p>
-          <div className={styles.stackList}>
-            <span>Next.js 16</span>
-            <span>NextAuth</span>
-            <span>Firebase</span>
-            <span>Firestore</span>
-            <span>Real members</span>
+            <div className={styles.modalSection}>
+              <h4>Pending approvals</h4>
+              <div className={styles.modalList}>
+                {snapshot.pendingMembers.length > 0 ? (
+                  snapshot.pendingMembers.map((member) => (
+                    <div key={member.id} className={styles.pendingRow}>
+                      <div>
+                        <strong>{member.displayName}</strong>
+                        <span>{member.createdAtLabel}</span>
+                      </div>
+                      {canManageMembers ? (
+                        <div className={styles.pendingActions}>
+                          <button
+                            type="button"
+                            className={styles.approveButton}
+                            onClick={() => handleApproval(member.id, 'approve')}
+                            disabled={isMemberPending}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.rejectButton}
+                            onClick={() => handleApproval(member.id, 'reject')}
+                            disabled={isMemberPending}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <span className={styles.pendingHint}>Waiting for admin</span>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className={styles.emptyModalState}>
+                    <p>No pending requests right now.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {renderMemberFeedback()}
           </div>
         </div>
-
-        {renderMembersDirectoryCard()}
-        {renderMemberManagementCard()}
-        </aside>
       ) : null}
-    </div>
+    </>
   );
 }

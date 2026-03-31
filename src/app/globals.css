@@ -1,15 +1,15 @@
 :root {
-  --background: #0B0E14;
-  --foreground: #f8fafc;
-  --primary: #3b82f6;
-  --primary-hover: #60a5fa;
-  --surface: rgba(255, 255, 255, 0.03);
-  --surface-hover: rgba(255, 255, 255, 0.06);
-  --border: rgba(255, 255, 255, 0.08);
-  --accent: #059669;
-  --cta: #F97316;
+  --background: #111b21;
+  --foreground: #e9edef;
+  --primary: #00a884;
+  --primary-hover: #008069;
+  --surface: #202c33;
+  --surface-hover: #2a3942;
+  --border: #313d45;
+  --accent: #00a884;
+  --cta: #53bdeb;
   --font-dm-sans: "Segoe UI";
-  --font-space-grotesk: "Trebuchet MS";
+  --font-space-grotesk: "Segoe UI";
 }
 
 html, body {
@@ -46,24 +46,16 @@ a {
   text-decoration: none;
 }
 
-/* Pro Max Glassmorphism Utility */
 .glass {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.15);
-  border-left-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
-  border-radius: 20px;
+  background: #202c33;
+  border: 1px solid #313d45;
+  box-shadow: 0 6px 18px rgba(11, 20, 26, 0.35);
+  border-radius: 16px;
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
