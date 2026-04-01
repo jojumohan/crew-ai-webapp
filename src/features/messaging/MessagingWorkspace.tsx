@@ -3,7 +3,7 @@
 const quickEmoji = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection, query, where, deleteDoc, orderBy, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, query, where, deleteDoc, orderBy, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
 import { signOut } from 'next-auth/react';
 import { getSignOutCallbackUrl } from '@/lib/auth-client';
@@ -720,30 +720,84 @@ export default function MessagingWorkspace({
   async function handleCall(type: 'voice' | 'video') {
     if (!activeConversation || isCalling) return;
     
-    const otherParticipantId = activeConversation.type === 'direct' 
-      ? activeConversation.id.replace('direct_', '').replace(Buffer.from(snapshot.viewer.id).toString('base64url'), '').replace('_', '')
-      : null;
-    
     setIsCalling(true);
+    
     try {
-      const otherId = activeConversation.type === 'direct' 
-        ? activeConversation.participantIds.find(id => id !== snapshot.viewer.id)
-        : null;
+      if (activeConversation.type === 'direct') {
+        // 1-to-1 call using existing Firebase system
+        const otherId = activeConversation.participantIds.find(id => id !== snapshot.viewer.id);
+        if (!otherId) {
+          setIsCalling(false);
+          return;
+        }
 
-      const body = activeConversation.type === 'direct' 
-        ? { targetUserId: otherId } 
-        : { title: `📞 Group call: ${activeConversation.title}` };
+        const otherMember = snapshot.members.find(m => m.id === otherId);
+        
+        // Create call in Firestore
+        const callDoc = await addDoc(collection(db, 'calls'), {
+          callerId: snapshot.viewer.id,
+          callerName: snapshot.viewer.displayName,
+          calleeId: otherId,
+          calleeName: otherMember?.displayName || 'Unknown',
+          status: 'ringing',
+          type,
+          createdAt: serverTimestamp(),
+        });
 
-      await fetch('/api/push/ring', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+        // Send push notification
+        await fetch('/api/push/ring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetUserId: otherId }),
+        });
+
+        // Navigate to call room
+        window.location.href = `/dashboard/call/${callDoc.id}`;
+      } else {
+        // Group call - create Daily.co room and group call document
+        const invitedIds = activeConversation.participantIds.filter(id => id !== snapshot.viewer.id);
+        
+        // Create Daily.co room
+        const roomRes = await fetch('/api/meet/room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            roomName: `group-${activeConversation.id}-${Date.now()}` 
+          }),
+        });
+
+        if (!roomRes.ok) {
+          throw new Error('Failed to create meeting room');
+        }
+
+        const { url: roomUrl } = await roomRes.json();
+
+        // Create group call
+        const groupCallRes = await fetch('/api/calls/group', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId: activeConversation.id,
+            type,
+            invitedIds,
+            roomUrl,
+            roomName: `group-${activeConversation.id}-${Date.now()}`,
+          }),
+        });
+
+        if (!groupCallRes.ok) {
+          throw new Error('Failed to create group call');
+        }
+
+        const groupCallData = await groupCallRes.json();
+        
+        // Navigate to group call room
+        window.location.href = `/dashboard/group-call/${groupCallData.callId}`;
+      }
     } catch (err) {
       console.error("Call failed:", err);
       setIsCalling(false);
-    } finally {
-      // Keep isCalling true until user cancels or call is established normally
+      setError('Failed to start call. Please try again.');
     }
   }
 

@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import styles from './layout.module.css';
+import CallProvider from '@/features/calling/CallProvider';
 
 export default async function DashboardLayout({
   children,
@@ -18,5 +19,11 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  return <main className={styles.main}>{children}</main>;
+  return (
+    <main className={styles.main}>
+      <CallProvider>
+        {children}
+      </CallProvider>
+    </main>
+  );
 }
