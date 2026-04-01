@@ -1,0 +1,3 @@
+export default function ChatIndexPage() {
+  return <div className="flex-1 flex flex-col items-center justify-center bg-wa-dark select-none"><div className="text-center space-y-3"><div className="inline-flex items-center justify-center w-20 h-20 rounded-full border-2 border-wa-muted/30"><svg viewBox="0 0 24 24" className="w-10 h-10 fill-wa-muted"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg></div><h2 className="text-xl font-semibold text-wa-text">Select a chat</h2><p className="text-wa-muted text-sm max-w-xs">Choose a conversation from the sidebar or start a new one.</p></div></div>;
+}
