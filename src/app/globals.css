@@ -10,6 +10,7 @@
   --color-wa-muted: #8696A0;
   --color-wa-sent: #005C4B;
   --color-wa-received: #1F2C34;
+  --color-wa-teal: #202C33;
 }
 
 ::-webkit-scrollbar { width: 6px; }
