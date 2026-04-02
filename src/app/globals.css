@@ -1,6 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-wa-dark: #111B21;
+  --color-wa-panel: #202C33;
+  --color-wa-hover: #2A3942;
+  --color-wa-border: #374045;
+  --color-wa-green: #00A884;
+  --color-wa-text: #E9EDEF;
+  --color-wa-muted: #8696A0;
+  --color-wa-sent: #005C4B;
+  --color-wa-received: #1F2C34;
+}
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
