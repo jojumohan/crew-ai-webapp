@@ -16,7 +16,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ conv
 
   const snap = await adminDb.collection('messages')
     .where('conversationId', '==', conversationId)
-    .orderBy('createdAt', 'asc')
     .limit(100)
     .get();
 
@@ -47,5 +46,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ conv
     };
   }));
 
+  messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   return NextResponse.json(messages);
 }

@@ -8,7 +8,6 @@ export async function GET(req: NextRequest) {
 
   const snap = await adminDb.collection('conversations')
     .where('participants', 'array-contains', userId)
-    .orderBy('lastMessageAt', 'desc')
     .limit(50)
     .get();
 
@@ -37,5 +36,6 @@ export async function GET(req: NextRequest) {
     };
   }));
 
+  conversations.sort((a, b) => new Date(b.lastMessageAt ?? 0).getTime() - new Date(a.lastMessageAt ?? 0).getTime());
   return NextResponse.json(conversations);
 }

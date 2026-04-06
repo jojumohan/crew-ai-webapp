@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { getUserId } from '@/lib/auth';
-import { FieldValue } from 'firebase-admin/firestore';
 
 export async function POST(req: NextRequest) {
   const userId = await getUserId(req);
@@ -44,7 +43,7 @@ export async function POST(req: NextRequest) {
     participants: [userId, otherUserId],
     isGroup: false,
     createdAt: new Date().toISOString(),
-    lastMessageAt: FieldValue.serverTimestamp(),
+    lastMessageAt: new Date().toISOString(),
     lastMessagePreview: null,
   });
 
